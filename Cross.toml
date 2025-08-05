@@ -1,0 +1,19 @@
+[build.env]
+passthrough = [
+    "SQLX_OFFLINE",
+]
+
+[target.arm-unknown-linux-musleabihf]
+passthrough = [
+    "SQLX_OFFLINE",
+]
+
+[target.armv7-unknown-linux-musleabihf]
+passthrough = [
+    "SQLX_OFFLINE",
+]
+
+[target.x86_64-unknown-linux-musl]
+passthrough = [
+    "SQLX_OFFLINE",
+]

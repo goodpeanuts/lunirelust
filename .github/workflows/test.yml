@@ -1,11 +1,30 @@
-name: Test
+name: Database Tests
 
-on: [pull_request, push]
+permissions:
+  contents: read
+
+on: [pull_request, push, workflow_dispatch]
 
 jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U testuser -d testdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -13,7 +32,53 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: actions-rs/cargo@v1
+
+      # Wait for postgres to be ready
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U testuser; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+
+      # Install postgresql-client for psql command
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      # Initialize database with seed files
+      - name: Initialize Database
+        run: |
+          export PGPASSWORD=pass
+          for file in db-seed/*.sql; do
+            if [ -f "$file" ]; then
+              echo "Executing $file..."
+              psql -h localhost -p 5432 -U testuser -d testdb -f "$file"
+            fi
+          done
+        env:
+          PGPASSWORD: pass
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
         with:
           command: test
           args: --workspace --all-targets --all-features
+        env:
+          APP_ENV: test
+          DATABASE_URL: "postgres://testuser:pass@localhost:5432/testdb"
+          DATABASE_MAX_CONNECTIONS: 5
+          DATABASE_MIN_CONNECTIONS: 1
+          SVC_HOST: 0.0.0.0
+          SERVICE_PORT: 8090
+          RUST_LOG: "debug,sqlx=debug,tower_http=info,axum::rejection=trace"
+          JWT_SECRET_KEY: "your_jwt_secret_key_mRMNj0ubratwHOakMmfnRRDbnSD6U1kzf9IgPPRqrpk="
+          ASSETS_HOME_PATH: "assets"
+          ASSETS_PUBLIC_PATH: "assets/public"
+          ASSETS_PUBLIC_URL: "/assets/public"
+          ASSETS_PRIVATE_PATH: "assets/private"
+          ASSETS_PRIVATE_URL: "/assets/private"
+          ASSET_MAX_SIZE: "52428800"
+          ASSET_ALLOWED_EXTENSIONS: "jpg|jpeg|png|gif|webp|svg|mp4|mov|avi|wmv|flv|mkv|mp3|wav|ogg|opus|pdf|doc|docx|ppt|pptx|xls|xlsx|hwp|hwpx|txt|zip"

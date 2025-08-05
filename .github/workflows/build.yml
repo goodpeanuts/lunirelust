@@ -10,6 +10,9 @@ jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      SQLX_OFFLINE: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -17,34 +20,44 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: actions-rs/cargo@v1
+      - name: Run check
+        uses: actions-rs/cargo@v1
         with:
           command: check
           args: --all-features
 
   build:
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      SQLX_OFFLINE: true
     strategy:
       fail-fast: false
       matrix:
         include:
         - os: macos-latest
           TARGET: aarch64-apple-darwin
+          USE_CROSS: false
 
         - os: macos-latest
           TARGET: x86_64-apple-darwin
+          USE_CROSS: false
 
         - os: ubuntu-latest
           TARGET: arm-unknown-linux-musleabihf
+          USE_CROSS: true
 
         - os: ubuntu-latest
           TARGET: armv7-unknown-linux-musleabihf
+          USE_CROSS: true
 
         - os: ubuntu-latest
           TARGET: x86_64-unknown-linux-musl
+          USE_CROSS: false
 
         - os: windows-latest
           TARGET: x86_64-pc-windows-msvc
+          USE_CROSS: false
           EXTENSION: .exe
 
     steps:
@@ -58,8 +71,24 @@ jobs:
         target: ${{ matrix.TARGET }}
         override: true
 
-    - uses: actions-rs/cargo@v1
+    # Install musl tools for Linux musl targets
+    - name: Install musl tools
+      if: matrix.TARGET == 'x86_64-unknown-linux-musl'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+
+    - name: Run build (with cross)
+      if: matrix.USE_CROSS == true
+      uses: actions-rs/cargo@v1
       with:
         use-cross: true
+        command: build
+        args: --verbose --release --target=${{ matrix.TARGET }}
+
+    - name: Run build (without cross)
+      if: matrix.USE_CROSS == false
+      uses: actions-rs/cargo@v1
+      with:
         command: build
         args: --verbose --release --target=${{ matrix.TARGET }}
