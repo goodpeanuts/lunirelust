@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let config = Config::from_env()?;
     let pool = setup_database(&config).await?;
-    let state = build_app_state(pool, config.clone());
+    let state = build_app_state(&pool, config.clone());
     let app = create_router(state);
 
     let addr = format!("{}:{}", config.service_host, config.service_port);
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await?;
 
     #[cfg(feature = "opentelemetry")]
-    shutdown_opentelemetry(opentelemetry_tracer_provider)?;
+    shutdown_opentelemetry(&opentelemetry_tracer_provider)?;
 
     Ok(())
 }

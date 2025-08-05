@@ -12,7 +12,7 @@ use crate::common::dto::RestApiResponse;
 
 use super::dto::ApiResponse;
 
-/// AppError is an enum that represents various types of errors that can occur in the application.
+/// `AppError` is an enum that represents various types of errors that can occur in the application.
 /// It implements the `std::error::Error` trait and the `axum::response::IntoResponse` trait.
 #[derive(Error, Debug)]
 pub enum AppError {
@@ -24,6 +24,9 @@ pub enum AppError {
 
     #[error("Internal server error")]
     InternalError,
+
+    #[error("Internal server error: {0}")]
+    InternalErrorWithMessage(String),
 
     #[error("Validation error: {0}")]
     ValidationError(String),
@@ -57,25 +60,24 @@ pub enum AppError {
     UserNotFound,
 }
 
-/// Converts the AppError enum into an HTTP response.
+/// Converts the `AppError` enum into an HTTP response.
 /// It maps the error to an appropriate HTTP status code and constructs a JSON response body.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match self {
-            AppError::ValidationError(_) => StatusCode::BAD_REQUEST,
-            AppError::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::NotFound(_) => StatusCode::NOT_FOUND,
-            AppError::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::Forbidden => StatusCode::FORBIDDEN,
-            AppError::InvalidFileData
-            | AppError::FileSizeExceeded
-            | AppError::InvalidFileName
-            | AppError::UnsupportedFileExtension => StatusCode::BAD_REQUEST,
-            AppError::WrongCredentials => StatusCode::UNAUTHORIZED,
-            AppError::MissingCredentials => StatusCode::BAD_REQUEST,
-            AppError::InvalidToken => StatusCode::UNAUTHORIZED,
-            AppError::TokenCreation => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::UserNotFound => StatusCode::NOT_FOUND,
+            Self::ValidationError(_)
+            | Self::InvalidFileData
+            | Self::FileSizeExceeded
+            | Self::InvalidFileName
+            | Self::UnsupportedFileExtension
+            | Self::MissingCredentials => StatusCode::BAD_REQUEST,
+            Self::DatabaseError(_)
+            | Self::InternalError
+            | Self::InternalErrorWithMessage(_)
+            | Self::TokenCreation => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::NotFound(_) | Self::UserNotFound => StatusCode::NOT_FOUND,
+            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::WrongCredentials | Self::InvalidToken => StatusCode::UNAUTHORIZED,
         };
         let body = axum::Json(ApiResponse::<()> {
             status: status.as_u16(),
@@ -87,8 +89,9 @@ impl IntoResponse for AppError {
     }
 }
 
-/// handle_error is a function that middlewares the error handling in the application.
-/// It takes a BoxError as input and returns an HTTP response.
+/// `handle_error` is a function that middlewares the error handling in the application.
+///
+/// It takes a `BoxError` as input and returns an HTTP response.
 /// It maps the error to an appropriate HTTP status code and constructs a JSON response body.
 /// The function is used to handle errors that occur during the request processing.
 /// It is designed to be used with the axum framework.

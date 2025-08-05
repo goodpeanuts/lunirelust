@@ -15,7 +15,7 @@ use axum::{
     Extension, Json,
 };
 
-use validator::Validate;
+use validator::Validate as _;
 
 #[utoipa::path(
     get,
@@ -73,7 +73,7 @@ pub async fn create_user(
     Extension(claims): Extension<Claims>,
     multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    let modified_by = claims.sub.clone().to_string();
+    let modified_by = claims.sub.clone();
 
     let (mut fields, mut files) =
         parse_multipart_to_maps(multipart, &state.config.asset_allowed_extensions_pattern).await?;
@@ -97,7 +97,7 @@ pub async fn create_user(
     // Validate the CreateUser DTO.
     create_user
         .validate()
-        .map_err(|err| AppError::ValidationError(format!("Invalid input: {}", err)))?;
+        .map_err(|err| AppError::ValidationError(format!("Invalid input: {err}")))?;
 
     let mut upload_file_dto = None;
 
@@ -139,12 +139,12 @@ pub async fn update_user(
 ) -> Result<impl IntoResponse, AppError> {
     payload.validate().map_err(|err| {
         tracing::error!("Validation error: {err}");
-        AppError::ValidationError(format!("Invalid input: {}", err))
+        AppError::ValidationError(format!("Invalid input: {err}"))
     })?;
 
     // Set the modified_by field to the current user's ID.
     let mut payload = payload;
-    payload.modified_by = claims.sub.clone().to_string();
+    payload.modified_by = claims.sub.clone();
 
     let user = state.user_service.update_user(id, payload).await?;
     Ok(RestApiResponse::success(user))

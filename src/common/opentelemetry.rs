@@ -1,13 +1,15 @@
 // This module provides utilities to set up OpenTelemetry tracing using the OTLP exporter.
 // It configures the tracer provider, resource attributes, and integrates with tracing-subscriber.
-use opentelemetry::trace::TracerProvider;
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
-use opentelemetry_otlp::{Protocol, WithExportConfig};
+use opentelemetry_otlp::{Protocol, WithExportConfig as _};
 use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
 use std::{error::Error, sync::OnceLock};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{
+    layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter, Layer as _,
+};
 
 // get_resource initializes a global Resource containing service name and version.
 // Uses OnceLock to ensure the resource is created only once.
@@ -36,13 +38,13 @@ pub fn init_traces() -> SdkTracerProvider {
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
         .expect("OTEL_EXPORTER_OTLP_ENDPOINT must be set");
     // Read the OTLP protocol (default to http/protobuf) from environment variable.
-    let protocol_str = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL")
-        .unwrap_or_else(|_| "http/protobuf".to_string());
+    let protocol_str =
+        std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "http/protobuf".to_owned());
     // Determine the OTLP protocol enum based on the protocol string.
     let protocol = match protocol_str.as_str() {
         "http/json" => Protocol::HttpJson,
         "http/protobuf" => Protocol::HttpBinary,
-        other => panic!("Unsupported OTLP protocol: {}", other),
+        other => panic!("Unsupported OTLP protocol: {other}"),
     };
     // Create the OTLP HTTP exporter using the specified endpoint and protocol.
     let exporter = match protocol {
@@ -53,7 +55,7 @@ pub fn init_traces() -> SdkTracerProvider {
                 .build_span_exporter()
                 .expect("Failed to create trace exporter")
         }
-        _ => panic!("Unsupported OTLP protocol"),
+        Protocol::Grpc => panic!("Unsupported OTLP protocol"),
     };
 
     // Build and return the tracer provider with batch exporter and resource.
@@ -69,8 +71,11 @@ pub fn setup_tracing_opentelemetry() -> SdkTracerProvider {
     dotenvy::dotenv().ok();
 
     // Configure log level filter from environment or default to info for application and debug for opentelemetry.
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info,opentelemetry=debug".parse().unwrap());
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        "info,opentelemetry=debug"
+            .parse()
+            .expect("Failed to parse environment variable")
+    });
 
     // Configure formatting layer for tracing-subscriber, including timestamp, thread info, and span events.
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -107,11 +112,11 @@ pub fn setup_tracing_opentelemetry() -> SdkTracerProvider {
 
 // shutdown_opentelemetry gracefully shuts down the tracer provider, ensuring all spans are exported.
 pub fn shutdown_opentelemetry(
-    tracer_provider: SdkTracerProvider,
+    tracer_provider: &SdkTracerProvider,
 ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     // Attempt to shut down the tracer provider and return any errors.
     if let Err(e) = tracer_provider.shutdown() {
-        return Err(format!("tracer provider: {}", e).into());
+        return Err(format!("tracer provider: {e}").into());
     }
     Ok(())
 }

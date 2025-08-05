@@ -74,7 +74,7 @@ impl UserRepository for UserRepo {
             .filter(|s| !s.trim().is_empty())
         {
             builder.push(" AND u.username like ");
-            builder.push_bind(format!("%{}%", s));
+            builder.push_bind(format!("%{s}%"));
         }
 
         let query = builder.build_query_as::<User>();

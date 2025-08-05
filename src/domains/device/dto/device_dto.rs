@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 
 use crate::domains::device::domain::model::{Device, DeviceOS, DeviceStatus};
 
-#[derive(PartialEq, Debug, Deserialize, Serialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Deserialize, Serialize, ToSchema)]
 pub struct DeviceDto {
     pub id: String,
     pub user_id: String,
@@ -39,7 +39,7 @@ impl From<Device> for DeviceDto {
     }
 }
 
-#[derive(PartialEq, Debug, Deserialize, serde::Serialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Deserialize, serde::Serialize, ToSchema)]
 pub struct CreateDeviceDto {
     pub name: String,
     pub user_id: String,
@@ -50,7 +50,7 @@ pub struct CreateDeviceDto {
     pub modified_by: String,
 }
 
-#[derive(PartialEq, Debug, Deserialize, serde::Serialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Deserialize, serde::Serialize, ToSchema)]
 pub struct UpdateDeviceDto {
     pub name: Option<String>,
     pub user_id: Option<String>,
@@ -66,7 +66,7 @@ pub struct UpdateManyDevicesDto {
     pub devices: Vec<UpdateDeviceDtoWithIdDto>,
 }
 
-#[derive(PartialEq, Debug, Deserialize, serde::Serialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Deserialize, serde::Serialize, ToSchema)]
 pub struct UpdateDeviceDtoWithIdDto {
     pub id: Option<String>,
     pub name: String,

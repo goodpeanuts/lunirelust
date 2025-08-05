@@ -26,7 +26,7 @@ where
     pub fn success(data: T) -> Self {
         Self {
             status: 200,
-            message: "success".to_string(),
+            message: "success".to_owned(),
             data: Some(data),
         }
     }
@@ -51,6 +51,7 @@ where
 }
 
 /// A wrapper struct for the API response.
+///
 /// This struct is used to convert the API response into a format that can be returned by Axum.
 /// It implements the `IntoResponse` trait, which allows it to be used as a response in Axum handlers.
 

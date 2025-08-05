@@ -51,7 +51,7 @@ impl FileServiceTrait for FileService {
         let (unique_filename, file_relative_path, file_path) =
             self.build_file_path(&file_dto.original_filename);
 
-        self.write_file_to_disk(&file_path, &file_dto.data)?;
+        Self::write_file_to_disk(&file_path, &file_dto.data)?;
 
         let file_url = format!(
             "{}/profile/{}",
@@ -134,13 +134,18 @@ impl FileServiceTrait for FileService {
             return Err(AppError::NotFound("File not found".into()));
         }
 
-        let file_path = FilePath::new(self.config.assets_private_path.as_str())
-            .join(to_delete_file.unwrap().file_relative_path);
+        let file_path = FilePath::new(self.config.assets_private_path.as_str()).join(
+            to_delete_file
+                .expect("Failed to parse environment variable")
+                .file_relative_path,
+        );
 
         if std::fs::remove_file(&file_path).is_err() {
             tracing::error!(
                 "Error deleting file from filesystem: {}",
-                file_path.to_str().unwrap()
+                file_path
+                    .to_str()
+                    .expect("Failed to parse environment variable")
             );
             return Err(AppError::InternalError);
         }
@@ -178,9 +183,9 @@ impl FileService {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let mut candidate = if ext.is_empty() {
-            format!("{}", stem)
+            format!("{stem}")
         } else {
-            format!("{}.{}", stem, ext)
+            format!("{stem}.{ext}")
         };
 
         let mut count = 1;
@@ -188,9 +193,9 @@ impl FileService {
 
         while base.join(&candidate).exists() {
             candidate = if ext.is_empty() {
-                format!("{}({})", stem, count)
+                format!("{stem}({count})")
             } else {
-                format!("{}({}).{}", stem, count, ext)
+                format!("{stem}({count}).{ext}")
             };
             count += 1;
         }
@@ -204,9 +209,11 @@ impl FileService {
         let base_dir_with_profile =
             FilePath::new(base_dir).join(FileType::ProfilePicture.to_string());
 
-        let unique_filename = FileService::generate_unique_filename(
+        let unique_filename = Self::generate_unique_filename(
             original_filename,
-            base_dir_with_profile.to_str().unwrap(),
+            base_dir_with_profile
+                .to_str()
+                .expect("Failed to parse environment variable"),
         );
         let file_path = base_dir_with_profile.join(&unique_filename);
 
@@ -215,15 +222,15 @@ impl FileService {
     }
 
     /// Writes the file's byte data to the disk, creating directories as needed.
-    fn write_file_to_disk(&self, file_path: &FilePath, data: &[u8]) -> Result<(), AppError> {
+    fn write_file_to_disk(file_path: &FilePath, data: &[u8]) -> Result<(), AppError> {
         let parent = file_path.parent().ok_or(AppError::InternalError)?;
         std::fs::create_dir_all(parent).map_err(|err| {
-            tracing::error!("Error creating directory: {}", err);
+            tracing::error!("Error creating directory: {err}");
             AppError::InternalError
         })?;
 
         std::fs::write(file_path, data).map_err(|err| {
-            tracing::error!("Error writing file: {}", err);
+            tracing::error!("Error writing file: {err}");
             AppError::InternalError
         })?;
 

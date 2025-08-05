@@ -27,10 +27,10 @@ pub enum FileType {
 impl fmt::Display for FileType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FileType::ProfilePicture => write!(f, "profile_picture"),
-            FileType::Document => write!(f, "document"),
-            FileType::Video => write!(f, "video"),
-            FileType::Other => write!(f, "other"),
+            Self::ProfilePicture => write!(f, "profile_picture"),
+            Self::Document => write!(f, "document"),
+            Self::Video => write!(f, "video"),
+            Self::Other => write!(f, "other"),
         }
     }
 }
@@ -39,10 +39,10 @@ impl FromStr for FileType {
     type Err = AppError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "profile_picture" => Ok(FileType::ProfilePicture),
-            "document" => Ok(FileType::Document),
-            "video" => Ok(FileType::Video),
-            "other" => Ok(FileType::Other),
+            "profile_picture" => Ok(Self::ProfilePicture),
+            "document" => Ok(Self::Document),
+            "video" => Ok(Self::Video),
+            "other" => Ok(Self::Other),
             _ => Err(AppError::ValidationError(format!("Invalid file type: {s}"))),
         }
     }
@@ -51,14 +51,14 @@ impl FromStr for FileType {
 impl From<String> for FileType {
     fn from(s: String) -> Self {
         s.parse()
-            .unwrap_or_else(|_| panic!("Invalid file type: {}", s))
+            .unwrap_or_else(|_| panic!("Invalid file type: {s}"))
     }
 }
 
 impl<'r> Decode<'r, Postgres> for FileType {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        Ok(FileType::from_str(s)?)
+        Ok(Self::from_str(s)?)
     }
 }
 

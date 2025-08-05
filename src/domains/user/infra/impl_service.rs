@@ -126,7 +126,7 @@ impl UserServiceTrait for UserService {
     async fn update_user(&self, id: String, payload: UpdateUserDto) -> Result<UserDto, AppError> {
         let mut tx = self.pool.begin().await?;
 
-        match self.repo.update(&mut tx, id.to_string(), payload).await {
+        match self.repo.update(&mut tx, id.clone(), payload).await {
             Ok(Some(user)) => {
                 tx.commit().await?;
                 Ok(UserDto::from(user))
@@ -147,7 +147,7 @@ impl UserServiceTrait for UserService {
     async fn delete_user(&self, id: String) -> Result<String, AppError> {
         let mut tx = self.pool.begin().await?;
 
-        match self.repo.delete(&mut tx, id.to_string()).await {
+        match self.repo.delete(&mut tx, id.clone()).await {
             Ok(true) => {
                 tx.commit().await?;
                 Ok("User deleted".into())

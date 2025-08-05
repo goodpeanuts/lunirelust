@@ -25,16 +25,16 @@ async fn parse_multipart_internal(
     let mut files: HashMap<String, Vec<FileDto>> = HashMap::new();
 
     // Helper closure to map multipart errors to AppError.
-    let map_err_internal = |err| {
-        tracing::error!("Multipart error: {}", err);
-        AppError::InternalError
+    let map_err_internal = |err: axum::extract::multipart::MultipartError| {
+        tracing::error!("Multipart error: {err}");
+        AppError::InternalErrorWithMessage(err.to_string())
     };
 
     while let Some(field) = multipart.next_field().await.map_err(map_err_internal)? {
         let name = field
             .name()
-            .ok_or_else(|| AppError::ValidationError("Field name is missing".to_string()))?
-            .to_string();
+            .ok_or_else(|| AppError::ValidationError("Field name is missing".to_owned()))?
+            .to_owned();
 
         if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(&name)) {
             tracing::error!("Invalid field name: {}", name);
@@ -42,8 +42,8 @@ async fn parse_multipart_internal(
         }
 
         if let Some(filename) = field.file_name() {
-            let original_filename = filename.to_string();
-            if original_filename.contains("..") || original_filename.contains("/") {
+            let original_filename = filename.to_owned();
+            if original_filename.contains("..") || original_filename.contains('/') {
                 tracing::error!("Invalid file name: {}", original_filename);
                 return Err(AppError::InvalidFileName);
             }
@@ -61,7 +61,7 @@ async fn parse_multipart_internal(
             let content_type = field
                 .content_type()
                 .unwrap_or(APPLICATION_OCTET_STREAM)
-                .to_string();
+                .to_owned();
             let data = field.bytes().await.map_err(map_err_internal)?.to_vec();
             files.entry(name).or_default().push(FileDto {
                 content_type,

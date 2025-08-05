@@ -24,7 +24,7 @@ pub struct Config {
     pub asset_max_size: usize,
 }
 
-/// from_env reads the environment variables and returns a Config struct.
+/// `from_env` reads the environment variables and returns a Config struct.
 /// It uses the dotenv crate to load environment variables from a .env file if it exists.
 /// It returns a Result with the Config struct or an error if any of the environment variables are missing.
 impl Config {
@@ -52,13 +52,11 @@ impl Config {
             assets_private_path: env::var("ASSETS_PRIVATE_PATH")?,
             assets_private_url: env::var("ASSETS_PRIVATE_URL")?,
 
-            asset_allowed_extensions_pattern: Regex::new(&format!(r"(?i)^.*\.({})$", ext_val))
+            asset_allowed_extensions_pattern: Regex::new(&format!(r"(?i)^.*\.({ext_val})$"))
                 .unwrap_or_else(|_| {
-                    eprintln!(
-                        "Invalid ASSET_ALLOWED_EXTENSIONS regex pattern: {}",
-                        ext_val
-                    );
-                    Regex::new(r"(?i)^.*\.(jpg|jpeg|png|gif|webp)$").unwrap()
+                    eprintln!("Invalid ASSET_ALLOWED_EXTENSIONS regex pattern: {ext_val}");
+                    Regex::new(r"(?i)^.*\.(jpg|jpeg|png|gif|webp)$")
+                        .expect("Failed to compile default asset extensions regex")
                 }),
 
             asset_max_size: env::var("ASSET_MAX_SIZE")
@@ -67,7 +65,7 @@ impl Config {
     }
 }
 
-/// setup_database initializes the database connection pool.
+/// `setup_database` initializes the database connection pool.
 pub async fn setup_database(config: &Config) -> Result<PgPool, sqlx::Error> {
     // Attempt to connect repeatedly, with a small delay, until success (or a max number of tries)
     let mut attempts = 0;

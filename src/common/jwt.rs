@@ -1,7 +1,7 @@
 use axum::{
     extract::Request,
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::{IntoResponse as _, Response},
 };
 
 use chrono::{Duration, Utc};
@@ -13,7 +13,8 @@ use utoipa::ToSchema;
 
 use super::error::AppError;
 
-/// JWT_SECRET_KEY is the environment variable that holds the secret key for JWT encoding and decoding.
+/// `JWT_SECRET_KEY` is the environment variable that holds the secret key for JWT encoding and decoding.
+///
 /// It is loaded from the environment variables using the dotenv crate.
 /// The secret key is used to sign the JWT tokens and should be kept secret.
 pub static KEYS: LazyLock<Keys> = LazyLock::new(|| {
@@ -40,6 +41,7 @@ impl Keys {
 }
 
 /// Claims is a struct that represents the claims in the JWT token.
+///
 /// It contains the subject (user ID), expiration time, and issued at time.
 /// The `sub` field is the user ID, `exp` is the expiration time, and `iat` is the issued at time.
 /// The `Claims` struct is used to encode and decode the JWT tokens.
@@ -66,7 +68,7 @@ impl Default for Claims {
         let expire: Duration = Duration::hours(24);
         let exp: usize = (now + expire).timestamp() as usize;
         let iat: usize = now.timestamp() as usize;
-        Claims {
+        Self {
             sub: String::new(),
             exp,
             iat,
@@ -74,25 +76,25 @@ impl Default for Claims {
     }
 }
 
-/// AuthBody is a struct that represents the authentication body.
+/// `AuthBody` is a struct that represents the authentication body.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AuthBody {
     pub access_token: String,
     pub token_type: String,
 }
 
-/// The AuthBody struct is used to create a new instance of the authentication body.
+/// The `AuthBody` struct is used to create a new instance of the authentication body.
 /// It takes an access token as a parameter and sets the token type to "Bearer".
 impl AuthBody {
     pub fn new(access_token: String) -> Self {
         Self {
             access_token,
-            token_type: "Bearer".to_string(),
+            token_type: "Bearer".to_owned(),
         }
     }
 }
 
-/// AuthPayload is a struct that represents the authentication payload.
+/// `AuthPayload` is a struct that represents the authentication payload.
 /// It contains the client ID and client secret.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AuthPayload {
@@ -100,14 +102,17 @@ pub struct AuthPayload {
     pub client_secret: String,
 }
 
-/// make_jwt_token is a function that creates a JWT token.
+/// `make_jwt_token` is a function that creates a JWT token.
 /// It takes a user ID as a parameter and returns a Result with the JWT token or an error.
 pub fn make_jwt_token(user_id: &str) -> Result<String, AppError> {
     let claims = Claims {
-        sub: user_id.to_string(),
+        sub: user_id.to_owned(),
         ..Default::default()
     };
-    encode(&Header::default(), &claims, &KEYS.encoding).map_err(|_| AppError::TokenCreation)
+    encode(&Header::default(), &claims, &KEYS.encoding).map_err(|err| {
+        tracing::error!("Error encoding token: {:?}", err);
+        AppError::TokenCreation
+    })
 }
 
 /// Middleware to validate JWT tokens.

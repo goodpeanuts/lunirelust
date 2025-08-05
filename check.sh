@@ -6,7 +6,6 @@ cargo check --quiet --workspace --all-targets
 cargo fmt --all -- --check
 cargo clippy --quiet --workspace --all-targets --all-features --  -D warnings -W clippy::all
 
-trunk build
 
 # cargo install --locked cargo-deny
 cargo deny check -d

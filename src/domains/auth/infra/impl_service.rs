@@ -38,8 +38,8 @@ impl AuthServiceTrait for AuthService {
     async fn create_user_auth(&self, auth_user: AuthUserDto) -> Result<(), AppError> {
         let mut tx = self.pool.begin().await?;
 
-        let password_hash =
-            hash_util::hash_password(&auth_user.password).map_err(|_| AppError::InternalError)?;
+        let password_hash = hash_util::hash_password(&auth_user.password)
+            .map_err(|e| AppError::InternalErrorWithMessage(e.to_string()))?;
 
         let user_auth = UserAuth {
             user_id: auth_user.user_id,
@@ -80,7 +80,8 @@ impl AuthServiceTrait for AuthService {
             return Err(AppError::WrongCredentials);
         }
 
-        let token = make_jwt_token(&user_auth.user_id).map_err(|_| AppError::InternalError)?;
+        let token = make_jwt_token(&user_auth.user_id)
+            .map_err(|e| AppError::InternalErrorWithMessage(e.to_string()))?;
 
         Ok(AuthBody::new(token))
     }

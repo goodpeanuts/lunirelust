@@ -1,4 +1,6 @@
-use super::handlers::*;
+use super::handlers::{
+    __path_delete_file, __path_serve_protected_file, delete_file, serve_protected_file,
+};
 use crate::{common::app_state::AppState, domains::file::dto::file_dto::UploadedFileDto};
 use axum::{
     routing::{delete, get},
@@ -25,12 +27,15 @@ use utoipa::{
     ),
     modifiers(&FileApiDoc)
 )]
-/// FileApiDoc is used to generate OpenAPI documentation for the file API.
+/// `FileApiDoc` is used to generate `OpenAPI` documentation for the file API.
 pub struct FileApiDoc;
 
 impl utoipa::Modify for FileApiDoc {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi.components.as_mut().unwrap();
+        let components = openapi
+            .components
+            .as_mut()
+            .expect("Failed to parse environment variable");
         components.add_security_scheme(
             "bearer_auth",
             SecurityScheme::Http(
@@ -40,7 +45,7 @@ impl utoipa::Modify for FileApiDoc {
                     .description(Some("Input your `<your‑jwt>`"))
                     .build(),
             ),
-        )
+        );
     }
 }
 

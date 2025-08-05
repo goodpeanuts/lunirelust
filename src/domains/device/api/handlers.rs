@@ -56,7 +56,7 @@ pub async fn create_device(
 ) -> Result<impl IntoResponse, AppError> {
     // Set the modified_by field to the current user's ID.
     let mut payload = payload;
-    payload.modified_by = claims.sub.clone().to_string();
+    payload.modified_by = claims.sub.clone();
 
     let device = state.device_service.create_device(payload).await?;
     Ok(RestApiResponse::success(device))
@@ -80,7 +80,7 @@ pub async fn update_device(
 ) -> Result<impl IntoResponse, AppError> {
     // Set the modified_by field to the current user's ID.
     let mut payload = payload;
-    payload.modified_by = claims.sub.clone().to_string();
+    payload.modified_by = claims.sub.clone();
 
     let device = state.device_service.update_device(id, payload).await?;
     Ok(RestApiResponse::success(device))
@@ -120,7 +120,7 @@ pub async fn update_many_devices(
     Path(user_id): Path<String>,
     Json(payload): Json<UpdateManyDevicesDto>,
 ) -> Result<impl IntoResponse, AppError> {
-    let modified_by = claims.sub.clone().to_string();
+    let modified_by = claims.sub.clone();
 
     let message = state
         .device_service

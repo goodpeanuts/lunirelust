@@ -7,7 +7,7 @@ use crate::domains::{
 
 use super::config::Config;
 
-/// AppState is a struct that holds the application-wide shared state.
+/// `AppState` is a struct that holds the application-wide shared state.
 /// It is passed to request handlers via Axum's extension mechanism.
 #[derive(Clone)]
 pub struct AppState {
@@ -24,7 +24,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Creates a new instance of AppState with the provided dependencies.
+    /// Creates a new instance of `AppState` with the provided dependencies.
     pub fn new(
         config: Config,
         auth_service: Arc<dyn AuthServiceTrait>,

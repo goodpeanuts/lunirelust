@@ -1,3 +1,6 @@
+#![allow(clippy::all)]
+#![allow(dead_code)]
+
 use std::sync::Once;
 
 use axum::{
@@ -10,7 +13,7 @@ use axum::{
 };
 
 use dotenvy::from_filename;
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 
 use lunirelust::{
     app::create_router,
@@ -23,18 +26,16 @@ use lunirelust::{
 };
 
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tower::ServiceExt;
+use tower::ServiceExt as _;
 
 static INIT: Once = Once::new();
 
 /// Constants for test client credentials
 /// These are used to authenticate the test client
-#[allow(dead_code)]
 pub const TEST_CLIENT_ID: &str = "apitest01";
-#[allow(dead_code)]
+
 pub const TEST_CLIENT_SECRET: &str = "test_password";
 
-#[allow(dead_code)]
 pub const TEST_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
 
 /// Helper function to load environment variables from .env.test file
@@ -64,32 +65,38 @@ pub async fn setup_test_db() -> Result<PgPool, Box<dyn std::error::Error>> {
 
 /// Helper function to create a test router
 pub async fn create_test_router() -> Router {
-    let pool = setup_test_db().await.unwrap();
-    let config = Config::from_env().unwrap();
-    let state = build_app_state(pool, config.clone());
-    let app = create_router(state);
-
-    app
+    let pool = setup_test_db().await.expect("Failed to setup test db");
+    let config = Config::from_env().expect("Failed to load config");
+    let state = build_app_state(&pool, config);
+    create_router(state)
 }
 
 /// Helper function gets the authentication token
 /// for the test client
 /// This function is used to authenticate the test client
-#[allow(dead_code)]
 async fn get_authentication_token() -> String {
     let payload = AuthPayload {
-        client_id: TEST_CLIENT_ID.to_string(),
-        client_secret: TEST_CLIENT_SECRET.to_string(),
+        client_id: TEST_CLIENT_ID.to_owned(),
+        client_secret: TEST_CLIENT_SECRET.to_owned(),
     };
 
     let response = request_with_body(Method::POST, "/auth/login", &payload);
 
     let (parts, body) = response.await.into_parts();
 
-    assert_eq!(parts.status, StatusCode::OK);
+    assert_eq!(
+        parts.status,
+        StatusCode::OK,
+        "Failed to get authentication token"
+    );
 
-    let response_body: RestApiResponse<AuthBody> = deserialize_json_body(body).await.unwrap();
-    let auth_body = response_body.0.data.unwrap();
+    let response_body: RestApiResponse<AuthBody> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
+    let auth_body = response_body
+        .0
+        .data
+        .expect("Failed to get auth body from response");
     let token = format!("{} {}", auth_body.token_type, auth_body.access_token);
     token
 }
@@ -123,7 +130,6 @@ pub async fn deserialize_json_body<T: serde::de::DeserializeOwned>(
 }
 
 /// Helper functions to create a request
-#[allow(dead_code)]
 pub async fn request(method: Method, uri: &str) -> Response<Body> {
     let request = get_request(method, uri);
     let app = create_test_router().await;
@@ -132,7 +138,6 @@ pub async fn request(method: Method, uri: &str) -> Response<Body> {
 }
 
 /// Helper function to create a request with a body
-#[allow(dead_code)]
 pub async fn request_with_body<T: serde::Serialize>(
     method: Method,
     uri: &str,
@@ -146,7 +151,6 @@ pub async fn request_with_body<T: serde::Serialize>(
 }
 
 /// Helper function to create a request with authentication
-#[allow(dead_code)]
 pub async fn request_with_auth(method: Method, uri: &str) -> Response<Body> {
     let token = get_authentication_token().await;
     let request = get_request_with_auth(method, uri, &token);
@@ -156,7 +160,6 @@ pub async fn request_with_auth(method: Method, uri: &str) -> Response<Body> {
 }
 
 /// Helper function to create a request with authentication and a body
-#[allow(dead_code)]
 pub async fn request_with_auth_and_body<T: serde::Serialize>(
     method: Method,
     uri: &str,
@@ -171,7 +174,6 @@ pub async fn request_with_auth_and_body<T: serde::Serialize>(
 }
 
 /// Helper function to create a request with authentication and multipart data
-#[allow(dead_code)]
 pub async fn request_with_auth_and_multipart(
     method: Method,
     uri: &str,
@@ -188,22 +190,22 @@ pub async fn request_with_auth_and_multipart(
 async fn get_request(method: Method, uri: &str) -> Request<Body> {
     Request::builder()
         .method(method)
-        .uri(uri.to_string())
+        .uri(uri.to_owned())
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json")
         .body(axum::body::Body::empty())
-        .unwrap()
+        .expect("Failed to create request")
 }
 
 /// internal helper function to create a request with a body
 async fn get_request_with_body(method: Method, uri: &str, payload: &str) -> Request<Body> {
     let request: Request<Body> = Request::builder()
         .method(method)
-        .uri(uri.to_string())
+        .uri(uri.to_owned())
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json")
-        .body(axum::body::Body::from(payload.to_string()))
-        .unwrap();
+        .body(axum::body::Body::from(payload.to_owned()))
+        .expect("Failed to create request");
 
     request
 }
@@ -212,12 +214,12 @@ async fn get_request_with_body(method: Method, uri: &str, payload: &str) -> Requ
 async fn get_request_with_auth(method: Method, uri: &str, token: &str) -> Request<Body> {
     Request::builder()
         .method(method)
-        .uri(uri.to_string())
+        .uri(uri.to_owned())
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, token)
         .header(ACCEPT, "application/json")
         .body(axum::body::Body::empty())
-        .unwrap()
+        .expect("Failed to create request")
 }
 
 async fn get_request_with_auth_and_body(
@@ -228,12 +230,12 @@ async fn get_request_with_auth_and_body(
 ) -> Request<Body> {
     Request::builder()
         .method(method)
-        .uri(uri.to_string())
+        .uri(uri.to_owned())
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, token)
         .header(ACCEPT, "application/json")
-        .body(axum::body::Body::from(payload.to_string()))
-        .unwrap()
+        .body(axum::body::Body::from(payload.to_owned()))
+        .expect("Failed to create request")
 }
 
 async fn get_request_with_auth_and_multipart(
@@ -244,10 +246,10 @@ async fn get_request_with_auth_and_multipart(
 ) -> Request<Body> {
     Request::builder()
         .method(method)
-        .uri(uri.to_string())
+        .uri(uri.to_owned())
         .header(CONTENT_TYPE, "multipart/form-data; boundary=----XYZ")
         .header(AUTHORIZATION, token)
         .header(ACCEPT, "application/json")
         .body(Body::from(payload))
-        .unwrap()
+        .expect("Failed to create request")
 }

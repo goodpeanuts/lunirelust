@@ -15,36 +15,38 @@ use test_helpers::{
 use chrono::{Duration, Utc};
 
 async fn create_test_device() -> DeviceDto {
-    let name = format!("test-device-{}", Uuid::new_v4()).to_string();
+    let name = format!("test-device-{}", Uuid::new_v4());
 
     let payload = CreateDeviceDto {
         name,
-        user_id: TEST_USER_ID.to_string(),
+        user_id: TEST_USER_ID.to_owned(),
         device_os: DeviceOS::Android,
         status: DeviceStatus::Active,
         registered_at: Some(Utc::now() + Duration::minutes(30)),
-        modified_by: TEST_USER_ID.to_string(),
+        modified_by: TEST_USER_ID.to_owned(),
     };
 
     let response = request_with_auth_and_body(Method::POST, "/device", &payload);
     let (parts, body) = response.await.into_parts();
-    assert_eq!(parts.status, StatusCode::OK);
+    assert_eq!(parts.status, StatusCode::OK, "Expected status to be OK");
 
-    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body).await.unwrap();
-    response_body.0.data.unwrap()
+    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize device response body");
+    response_body.0.data.expect("Failed to get device data")
 }
 
 #[tokio::test]
 async fn test_create_device() {
-    let name = format!("test-device-{}", Uuid::new_v4()).to_string();
+    let name = format!("test-device-{}", Uuid::new_v4());
 
     let payload = CreateDeviceDto {
         name,
-        user_id: TEST_USER_ID.to_string(),
+        user_id: TEST_USER_ID.to_owned(),
         device_os: DeviceOS::Android,
         status: DeviceStatus::Active,
         registered_at: Some(Utc::now() + Duration::minutes(30)),
-        modified_by: TEST_USER_ID.to_string(),
+        modified_by: TEST_USER_ID.to_owned(),
     };
 
     let response = request_with_auth_and_body(Method::POST, "/device", &payload);
@@ -53,10 +55,12 @@ async fn test_create_device() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize device response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
-    let device_dto = response_body.0.data.unwrap();
+    let device_dto = response_body.0.data.expect("Failed to get device data");
 
     assert_eq!(device_dto.name, payload.name);
     assert_eq!(device_dto.user_id, payload.user_id);
@@ -78,11 +82,13 @@ async fn test_get_devices() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<Vec<DeviceDto>> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<Vec<DeviceDto>> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize devices response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
 
-    let devices = response_body.0.data.unwrap();
+    let devices = response_body.0.data.expect("Failed to get devices data");
 
     // println!("devices: {:?}", devices);
     assert!(!devices.is_empty());
@@ -93,18 +99,20 @@ async fn test_get_device_by_id() {
     let device = create_test_device().await;
     let existent_id = &device.id;
 
-    let url = format!("/device/{}", existent_id);
+    let url = format!("/device/{existent_id}");
     let response = request_with_auth(Method::GET, url.as_str());
 
     let (parts, body) = response.await.into_parts();
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize device response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
 
-    let response_device = response_body.0.data.unwrap();
+    let response_device = response_body.0.data.expect("Failed to get device data");
 
     assert_eq!(response_device.id, *existent_id);
     assert_eq!(response_device.name, device.name);
@@ -117,7 +125,7 @@ async fn test_get_device_by_id() {
 async fn test_update_device() {
     let existent_device = &create_test_device().await;
 
-    let name = format!("update-device-{}", Uuid::new_v4()).to_string();
+    let name = format!("update-device-{}", Uuid::new_v4());
 
     let payload = UpdateDeviceDto {
         name: Some(name),
@@ -130,7 +138,7 @@ async fn test_update_device() {
 
     let existent_id = existent_device.id.clone();
 
-    let url = format!("/device/{}", existent_id);
+    let url = format!("/device/{existent_id}");
 
     let response = request_with_auth_and_body(Method::PUT, url.as_str(), &payload);
 
@@ -138,11 +146,13 @@ async fn test_update_device() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<DeviceDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize device response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
 
-    let response_device = response_body.0.data.unwrap();
+    let response_device = response_body.0.data.expect("Failed to get device data");
 
     assert_eq!(response_device.id, *existent_id);
     assert_eq!(Some(response_device.name), payload.name);
@@ -160,14 +170,16 @@ async fn test_update_device() {
 async fn test_delete_device_not_found() {
     let non_existent_id = uuid::Uuid::new_v4();
 
-    let url = format!("/device/{}", non_existent_id);
+    let url = format!("/device/{non_existent_id}");
     let response = request_with_auth(Method::DELETE, url.as_str());
 
     let (parts, body) = response.await.into_parts();
 
     assert_eq!(parts.status, StatusCode::NOT_FOUND);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::NOT_FOUND);
     // println!("response_body.0.status: {:?}", response_body.0.status);
@@ -179,13 +191,15 @@ async fn test_delete_device() {
     let existent_device = create_test_device().await;
     let existent_id = existent_device.id.clone();
 
-    let url = format!("/device/{}", existent_id);
+    let url = format!("/device/{existent_id}");
     let response = request_with_auth(Method::DELETE, url.as_str());
 
     let (parts, body) = response.await.into_parts();
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
     // println!("response_body.0.status: {:?}", response_body.0.status);
@@ -196,10 +210,10 @@ async fn test_delete_device() {
 async fn test_update_many_devices() {
     let existent_device = create_test_device().await;
 
-    let user_id = TEST_USER_ID.to_string();
+    let user_id = TEST_USER_ID.to_owned();
 
-    let name1 = format!("many-update-device-{}", Uuid::new_v4()).to_string();
-    let name2 = format!("many-update-in-device-{}", Uuid::new_v4()).to_string();
+    let name1 = format!("many-update-device-{}", Uuid::new_v4());
+    let name2 = format!("many-update-in-device-{}", Uuid::new_v4());
 
     let payload = UpdateManyDevicesDto {
         devices: vec![
@@ -218,7 +232,7 @@ async fn test_update_many_devices() {
         ],
     };
 
-    let url = format!("/device/batch/{}", user_id);
+    let url = format!("/device/batch/{user_id}");
 
     let response = request_with_auth_and_body(Method::PUT, url.as_str(), &payload);
 
@@ -226,7 +240,9 @@ async fn test_update_many_devices() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
     // println!("response_body.0.status: {:?}", response_body.0.status);

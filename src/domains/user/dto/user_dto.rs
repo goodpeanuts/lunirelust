@@ -50,7 +50,6 @@ pub struct CreateUserMultipartDto {
     pub email: String,
     pub modified_by: String,
     // Optional profile picture file provided as binary data.
-    #[allow(dead_code)]
     #[schema(value_type = String, format = "binary", example = "profile_picture.png")]
     pub profile_picture: Option<String>,
 }

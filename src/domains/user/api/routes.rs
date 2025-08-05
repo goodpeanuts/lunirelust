@@ -1,4 +1,9 @@
-use super::handlers::*;
+use super::handlers::{
+    __path_create_user, __path_delete_user, __path_get_user_by_id, __path_get_user_list,
+    __path_get_users, __path_update_user, create_user, delete_user, get_user_by_id, get_user_list,
+    get_users, update_user,
+};
+
 use crate::{
     common::app_state::AppState,
     domains::user::dto::user_dto::{CreateUserMultipartDto, SearchUserDto, UpdateUserDto, UserDto},
@@ -33,12 +38,15 @@ use utoipa::{
     ),
     modifiers(&UserApiDoc)
 )]
-/// This struct is used to generate OpenAPI documentation for the user routes.
+/// This struct is used to generate `OpenAPI` documentation for the user routes.
 pub struct UserApiDoc;
 
 impl utoipa::Modify for UserApiDoc {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi.components.as_mut().unwrap();
+        let components = openapi
+            .components
+            .as_mut()
+            .expect("Failed to parse environment variable");
         components.add_security_scheme(
             "bearer_auth",
             SecurityScheme::Http(
@@ -48,7 +56,7 @@ impl utoipa::Modify for UserApiDoc {
                     .description(Some("Input your `<your‑jwt>`"))
                     .build(),
             ),
-        )
+        );
     }
 }
 

@@ -13,13 +13,13 @@ use test_helpers::{
 };
 
 async fn create_user() -> Result<(CreateUserMultipartDto, UserDto), AppError> {
-    let username = format!("testuser-{}", uuid::Uuid::new_v4()).to_string();
-    let email = format!("{}@test.com", username).to_string();
+    let username = format!("testuser-{}", uuid::Uuid::new_v4());
+    let email = format!("{username}@test.com");
 
     let payload = CreateUserMultipartDto {
         username,
         email,
-        modified_by: TEST_USER_ID.to_string(),
+        modified_by: TEST_USER_ID.to_owned(),
         profile_picture: None,
     };
 
@@ -32,12 +32,18 @@ async fn create_user() -> Result<(CreateUserMultipartDto, UserDto), AppError> {
 
     let (parts, body) = response.await.into_parts();
 
-    assert_eq!(parts.status, StatusCode::OK);
+    assert_eq!(parts.status, StatusCode::OK, "Expected status to be OK");
 
-    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize user response body");
 
-    assert_eq!(response_body.0.status, StatusCode::OK);
-    let user_dto = response_body.0.data.unwrap();
+    assert_eq!(
+        response_body.0.status,
+        StatusCode::OK,
+        "Expected response status to be OK"
+    );
+    let user_dto = response_body.0.data.expect("Failed to get user data");
 
     Ok((payload, user_dto))
 }
@@ -58,27 +64,27 @@ async fn test_create_user() {
 }
 
 async fn create_user_with_file() -> Result<(CreateUserMultipartDto, UserDto, String), AppError> {
-    let username = format!("testuser-{}", uuid::Uuid::new_v4()).to_string();
-    let email = format!("{}@test.com", username).to_string();
+    let username = format!("testuser-{}", uuid::Uuid::new_v4());
+    let email = format!("{username}@test.com");
 
     let image_file = "cat.png";
 
     let payload = CreateUserMultipartDto {
         username,
         email,
-        modified_by: TEST_USER_ID.to_string(),
+        modified_by: TEST_USER_ID.to_owned(),
         // Indicate the file name being uploaded
-        profile_picture: Some(image_file.to_string()),
+        profile_picture: Some(image_file.to_owned()),
     };
 
     // Read the image file from the test/asset/ directory
-    let file_path = format!("tests/asset/{}", image_file);
+    let file_path = format!("tests/asset/{image_file}");
     let file_bytes = std::fs::read(file_path)
-        .unwrap_or_else(|_| panic!("Failed to read {} from tests/asset/", image_file));
+        .unwrap_or_else(|_| panic!("Failed to read {image_file} from tests/asset/"));
 
     // Build the multipart body as a byte vector (Vec<u8>)
     let mut multipart_body = Vec::new();
-    use std::io::Write;
+    use std::io::Write as _;
     // Add the username part
     write!(
         &mut multipart_body,
@@ -103,8 +109,7 @@ async fn create_user_with_file() -> Result<(CreateUserMultipartDto, UserDto, Str
     // Add the file part for profile_picture
     write!(
         &mut multipart_body,
-        "------XYZ\r\nContent-Disposition: form-data; name=\"profile_picture\"; filename=\"{}\"\r\nContent-Type: image/png\r\n\r\n",
-        image_file
+        "------XYZ\r\nContent-Disposition: form-data; name=\"profile_picture\"; filename=\"{image_file}\"\r\nContent-Type: image/png\r\n\r\n"
     ).unwrap();
     multipart_body.extend_from_slice(&file_bytes);
     write!(&mut multipart_body, "\r\n").unwrap();
@@ -115,14 +120,20 @@ async fn create_user_with_file() -> Result<(CreateUserMultipartDto, UserDto, Str
 
     let (parts, body) = response.await.into_parts();
 
-    assert_eq!(parts.status, StatusCode::OK);
+    assert_eq!(parts.status, StatusCode::OK, "Expected status to be OK");
 
-    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize user response body");
 
-    assert_eq!(response_body.0.status, StatusCode::OK);
-    let user_dto = response_body.0.data.unwrap();
+    assert_eq!(
+        response_body.0.status,
+        StatusCode::OK,
+        "Expected response status to be OK"
+    );
+    let user_dto = response_body.0.data.expect("Failed to get user data");
 
-    Ok((payload, user_dto, image_file.to_string()))
+    Ok((payload, user_dto, image_file.to_owned()))
 }
 
 #[tokio::test]
@@ -139,7 +150,7 @@ async fn test_create_user_with_file() {
     assert_eq!(user_dto.username, payload.username.clone());
     assert_eq!(user_dto.email, Some(payload.email.clone()));
     assert_ne!(user_dto.modified_by, Some(payload.modified_by.clone()));
-    assert_eq!(user_dto.origin_file_name, Some(image_file.to_string()));
+    assert_eq!(user_dto.origin_file_name, Some(image_file.clone()));
     assert!(!user_dto.file_id.clone().unwrap_or_default().is_empty());
 }
 
@@ -151,11 +162,13 @@ async fn test_get_users() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<Vec<UserDto>> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<Vec<UserDto>> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize users response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
 
-    let user_dtos = response_body.0.data.unwrap();
+    let user_dtos = response_body.0.data.expect("Failed to get users data");
 
     // println!("user_dtos: {:?}", user_dtos);
     assert!(!user_dtos.is_empty());
@@ -163,7 +176,7 @@ async fn test_get_users() {
 
 #[tokio::test]
 async fn test_get_user_list() {
-    let username = "user0".to_string();
+    let username = "user0".to_owned();
 
     let payload = SearchUserDto {
         username: Some(username),
@@ -177,11 +190,13 @@ async fn test_get_user_list() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<Vec<UserDto>> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<Vec<UserDto>> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize users response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
 
-    let user_dtos = response_body.0.data.unwrap();
+    let user_dtos = response_body.0.data.expect("Failed to get users data");
 
     // println!("user_dtos: {:?}", user_dtos);
     assert!(!user_dtos.is_empty());
@@ -194,17 +209,19 @@ async fn test_get_user_by_id() {
     let existent_user = created.1;
     let existent_id = existent_user.id;
 
-    let url = format!("/user/{}", existent_id);
+    let url = format!("/user/{existent_id}");
     let response = request_with_auth(Method::GET, url.as_str());
 
     let (parts, body) = response.await.into_parts();
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize user response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
-    let user_dto = response_body.0.data.unwrap();
+    let user_dto = response_body.0.data.expect("Failed to get user data");
 
     assert_eq!(user_dto.id, *existent_id);
     assert_eq!(user_dto.username, existent_user.username);
@@ -224,16 +241,16 @@ async fn test_update_user() {
     let existent_user = created.1;
     let existent_id = existent_user.id;
 
-    let username = format!("update-testuser-{}", uuid::Uuid::new_v4()).to_string();
-    let email = format!("{}@test.com", username).to_string();
+    let username = format!("update-testuser-{}", uuid::Uuid::new_v4());
+    let email = format!("{username}@test.com");
 
     let payload = UpdateUserDto {
         username,
         email,
-        modified_by: TEST_USER_ID.to_string(),
+        modified_by: TEST_USER_ID.to_owned(),
     };
 
-    let url = format!("/user/{}", existent_id);
+    let url = format!("/user/{existent_id}");
 
     let response = request_with_auth_and_body(Method::PUT, url.as_str(), &payload);
 
@@ -241,10 +258,12 @@ async fn test_update_user() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<UserDto> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize user response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
-    let user_dto = response_body.0.data.unwrap();
+    let user_dto = response_body.0.data.expect("Failed to get user data");
 
     assert_eq!(user_dto.id, *existent_id);
     assert_eq!(user_dto.username, payload.username);
@@ -255,14 +274,16 @@ async fn test_update_user() {
 async fn test_delete_user_not_found() {
     let non_existent_id = uuid::Uuid::new_v4();
 
-    let url = format!("/user/{}", non_existent_id);
+    let url = format!("/user/{non_existent_id}");
     let response = request_with_auth(Method::DELETE, url.as_str());
 
     let (parts, body) = response.await.into_parts();
 
     assert_eq!(parts.status, StatusCode::NOT_FOUND);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::NOT_FOUND);
     // println!("response_body.0.status: {:?}", response_body.0.status);
@@ -285,7 +306,9 @@ async fn test_delete_user() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
     // println!("response_body.0.status: {:?}", response_body.0.status);
@@ -300,7 +323,7 @@ async fn test_delete_user_file() {
     let user_dto = created.1;
     let file_id = user_dto.file_id.clone().unwrap_or_default();
 
-    let url = format!("/file/{}", file_id);
+    let url = format!("/file/{file_id}");
 
     let response = request_with_auth(Method::DELETE, url.as_str());
 
@@ -308,7 +331,9 @@ async fn test_delete_user_file() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
     // println!("response_body.0.status: {:?}", response_body.0.status);

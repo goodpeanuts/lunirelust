@@ -10,7 +10,6 @@ where
     serializer.serialize_str(&s)
 }
 
-#[allow(dead_code)]
 pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
 where
     D: Deserializer<'de>,
@@ -23,7 +22,7 @@ where
 
 // support for Option<DateTime<Utc>>
 pub mod option {
-    use super::*;
+    use super::{serde, DateTime, Deserialize as _, Deserializer, Serializer, Utc};
     pub fn serialize<S>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

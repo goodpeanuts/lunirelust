@@ -1,4 +1,8 @@
-use super::handlers::*;
+use super::handlers::{
+    __path_create_device, __path_delete_device, __path_get_device_by_id, __path_get_devices,
+    __path_update_device, __path_update_many_devices, create_device, delete_device,
+    get_device_by_id, get_devices, update_device, update_many_devices,
+};
 use crate::{
     common::app_state::AppState,
     domains::device::dto::device_dto::{CreateDeviceDto, DeviceDto, UpdateDeviceDto},
@@ -32,12 +36,15 @@ use utoipa::{
     ),
     modifiers(&DeviceApiDoc)
 )]
-/// This struct is used to generate OpenAPI documentation for the device routes.
+/// This struct is used to generate `OpenAPI` documentation for the device routes.
 pub struct DeviceApiDoc;
 
 impl utoipa::Modify for DeviceApiDoc {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi.components.as_mut().unwrap();
+        let components = openapi
+            .components
+            .as_mut()
+            .expect("Failed to parse environment variable");
         components.add_security_scheme(
             "bearer_auth",
             SecurityScheme::Http(
@@ -47,7 +54,7 @@ impl utoipa::Modify for DeviceApiDoc {
                     .description(Some("Input your `<your‑jwt>`"))
                     .build(),
             ),
-        )
+        );
     }
 }
 

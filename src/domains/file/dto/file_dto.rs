@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 
 use crate::domains::file::domain::model::{FileType, UploadedFile};
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, ToSchema)]
 pub struct FileDto {
     pub content_type: String,
     pub original_filename: String,

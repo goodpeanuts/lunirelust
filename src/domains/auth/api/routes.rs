@@ -5,7 +5,7 @@ use super::handlers;
 
 use utoipa::OpenApi;
 
-/// Import the necessary modules for OpenAPI documentation generation
+/// Import the necessary modules for `OpenAPI` documentation generation
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -21,7 +21,7 @@ use utoipa::OpenApi;
         (name = "UserAuth", description = "User authentication endpoints")
     )
 )]
-/// This struct is used to generate OpenAPI documentation for the user authentication routes.
+/// This struct is used to generate `OpenAPI` documentation for the user authentication routes.
 pub struct UserAuthApiDoc;
 
 /// This function creates a router for the user authentication routes.

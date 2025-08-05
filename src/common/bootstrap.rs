@@ -9,10 +9,10 @@ use crate::domains::file::{FileService, FileServiceTrait};
 use crate::domains::user::UserServiceTrait;
 use crate::{common::app_state::AppState, domains::user::UserService};
 
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
-/// Constructs and wires all application services and returns a configured AppState.
-pub fn build_app_state(pool: PgPool, config: Config) -> AppState {
+/// Constructs and wires all application services and returns a configured `AppState`.
+pub fn build_app_state(pool: &PgPool, config: Config) -> AppState {
     let auth_service: Arc<dyn AuthServiceTrait> = AuthService::create_service(pool.clone());
     let file_service: Arc<dyn FileServiceTrait> =
         FileService::create_service(config.clone(), pool.clone());

@@ -11,8 +11,8 @@ mod test_helpers;
 #[tokio::test]
 async fn test_login_user() {
     let payload = AuthPayload {
-        client_id: TEST_CLIENT_ID.to_string(),
-        client_secret: TEST_CLIENT_SECRET.to_string(),
+        client_id: TEST_CLIENT_ID.to_owned(),
+        client_secret: TEST_CLIENT_SECRET.to_owned(),
     };
 
     let response = request_with_body(Method::POST, "/auth/login", &payload);
@@ -21,11 +21,13 @@ async fn test_login_user() {
 
     assert_eq!(parts.status, StatusCode::OK);
 
-    let response_body: RestApiResponse<AuthBody> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<AuthBody> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize auth response body");
 
     assert_eq!(response_body.0.status, StatusCode::OK);
 
-    let auth_body = response_body.0.data.unwrap();
+    let auth_body = response_body.0.data.expect("Failed to get auth body data");
 
     assert_eq!(auth_body.token_type, "Bearer");
     assert!(!auth_body.access_token.is_empty());
@@ -34,7 +36,7 @@ async fn test_login_user() {
 #[tokio::test]
 async fn test_login_user_fail() {
     let payload = AuthPayload {
-        client_id: TEST_CLIENT_ID.to_string(),
+        client_id: TEST_CLIENT_ID.to_owned(),
         client_secret: uuid::Uuid::new_v4().to_string(),
     };
 
@@ -44,7 +46,9 @@ async fn test_login_user_fail() {
 
     assert_eq!(parts.status, StatusCode::UNAUTHORIZED);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::UNAUTHORIZED);
     // println!("response_body.0.status: {:?}", response_body.0.status);
@@ -53,7 +57,7 @@ async fn test_login_user_fail() {
 
 #[tokio::test]
 async fn test_login_user_not_found() {
-    let username = format!("testuser-{}", uuid::Uuid::new_v4()).to_string();
+    let username = format!("testuser-{}", uuid::Uuid::new_v4());
 
     let payload = AuthPayload {
         client_id: username,
@@ -66,7 +70,9 @@ async fn test_login_user_not_found() {
 
     assert_eq!(parts.status, StatusCode::NOT_FOUND);
 
-    let response_body: RestApiResponse<()> = deserialize_json_body(body).await.unwrap();
+    let response_body: RestApiResponse<()> = deserialize_json_body(body)
+        .await
+        .expect("Failed to deserialize response body");
 
     assert_eq!(response_body.0.status, StatusCode::NOT_FOUND);
     println!("response_body.0.status: {:?}", response_body.0.status);

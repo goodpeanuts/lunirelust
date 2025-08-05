@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Router,
 };
-use http_body_util::BodyExt;
+use http_body_util::BodyExt as _;
 
 use std::time::Duration;
 use tower::ServiceBuilder;
@@ -20,7 +20,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use utoipa::OpenApi;
+use utoipa::OpenApi as _;
 
 use crate::{
     common::{
@@ -42,11 +42,14 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 /// List of regex patterns representing disallowed content to block in requests.
+///
 /// These patterns are applied to both request bodies and URL query strings.
 /// Used to detect and reject potentially dangerous input (e.g., script tags).
 /// This is just sample. In real app this can be loaded from repository
-pub static FORBIDDEN_PATTERNS: Lazy<Vec<Regex>> =
-    Lazy::new(|| vec![Regex::new(r"(?i)<\s*script\b[^>]*>").unwrap()]);
+pub static FORBIDDEN_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![Regex::new(r"(?i)<\s*script\b[^>]*>")
+        .expect("Failed to compile regex pattern for script tags")]
+});
 
 fn create_swagger_ui() -> SwaggerUi {
     SwaggerUi::new("/docs")
@@ -179,7 +182,7 @@ async fn request_response_inspecter(
     // inspect forbidden query string
     if let Some(query) = req.uri().query() {
         if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(query)) {
-            return Err((StatusCode::FORBIDDEN, "Forbidden Request".to_string()));
+            return Err((StatusCode::FORBIDDEN, "Forbidden Request".to_owned()));
         }
     }
 
@@ -224,7 +227,7 @@ where
 
         // inspect forbidden request body
         if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(body_str)) {
-            return Err((StatusCode::FORBIDDEN, "Forbidden Request".to_string()));
+            return Err((StatusCode::FORBIDDEN, "Forbidden Request".to_owned()));
         }
     }
 

@@ -14,7 +14,7 @@ use utoipa::ToSchema;
 use crate::common::error::AppError;
 
 /// Enum representing the possible statuses of a device in the system.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum DeviceStatus {
     #[serde(rename = "active")]
     Active,
@@ -31,13 +31,13 @@ pub enum DeviceStatus {
 impl fmt::Display for DeviceStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            DeviceStatus::Active => "active",
-            DeviceStatus::Inactive => "inactive",
-            DeviceStatus::Pending => "pending",
-            DeviceStatus::Blocked => "blocked",
-            DeviceStatus::Decommissioned => "decommissioned",
+            Self::Active => "active",
+            Self::Inactive => "inactive",
+            Self::Pending => "pending",
+            Self::Blocked => "blocked",
+            Self::Decommissioned => "decommissioned",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -45,11 +45,11 @@ impl FromStr for DeviceStatus {
     type Err = AppError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "active" => Ok(DeviceStatus::Active),
-            "inactive" => Ok(DeviceStatus::Inactive),
-            "pending" => Ok(DeviceStatus::Pending),
-            "blocked" => Ok(DeviceStatus::Blocked),
-            "decommissioned" => Ok(DeviceStatus::Decommissioned),
+            "active" => Ok(Self::Active),
+            "inactive" => Ok(Self::Inactive),
+            "pending" => Ok(Self::Pending),
+            "blocked" => Ok(Self::Blocked),
+            "decommissioned" => Ok(Self::Decommissioned),
             _ => Err(AppError::ValidationError(format!("Invalid status: {s}"))),
         }
     }
@@ -57,14 +57,14 @@ impl FromStr for DeviceStatus {
 
 impl From<String> for DeviceStatus {
     fn from(s: String) -> Self {
-        Self::from_str(&s).unwrap_or_else(|_| panic!("Invalid device status: {}", s))
+        Self::from_str(&s).unwrap_or_else(|_| panic!("Invalid device status: {s}"))
     }
 }
 
 impl<'r> Decode<'r, Postgres> for DeviceStatus {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        Ok(DeviceStatus::from_str(s)?)
+        Ok(Self::from_str(s)?)
     }
 }
 
@@ -78,9 +78,8 @@ impl Type<Postgres> for DeviceStatus {
     }
 }
 
-#[allow(clippy::upper_case_acronyms)]
 /// Enum representing the supported operating systems of a device.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum DeviceOS {
     #[serde(rename = "Android")]
     Android,
@@ -91,10 +90,10 @@ pub enum DeviceOS {
 impl fmt::Display for DeviceOS {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            DeviceOS::Android => "Android",
-            DeviceOS::IOS => "iOS",
+            Self::Android => "Android",
+            Self::IOS => "iOS",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -102,8 +101,8 @@ impl FromStr for DeviceOS {
     type Err = AppError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Android" => Ok(DeviceOS::Android),
-            "iOS" => Ok(DeviceOS::IOS),
+            "Android" => Ok(Self::Android),
+            "iOS" => Ok(Self::IOS),
             _ => Err(AppError::ValidationError(format!("Invalid device_os: {s}"))),
         }
     }
@@ -111,14 +110,14 @@ impl FromStr for DeviceOS {
 
 impl From<String> for DeviceOS {
     fn from(s: String) -> Self {
-        Self::from_str(&s).unwrap_or_else(|_| panic!("Invalid device OS: {}", s))
+        Self::from_str(&s).unwrap_or_else(|_| panic!("Invalid device OS: {s}"))
     }
 }
 
 impl<'r> Decode<'r, Postgres> for DeviceOS {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        Ok(DeviceOS::from_str(s)?)
+        Ok(Self::from_str(s)?)
     }
 }
 
