@@ -8,6 +8,7 @@
 cargo install --locked cargo-deny
 ```
 
+
 ### Git cliff
 
 Git cliff is used to generate changelogs from commit messages.
