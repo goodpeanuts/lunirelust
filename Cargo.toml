@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[workspace]
+exclude = [
+    "subm/lustools/lust",
+]
+
+
 
 [dependencies]
 axum-extra = { version = "0.10.1", features = ["typed-header"] }
