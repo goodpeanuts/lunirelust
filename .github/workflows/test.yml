@@ -42,24 +42,22 @@ jobs:
           done
           echo "PostgreSQL is ready!"
 
-      # Install postgresql-client for psql command
-      - name: Install PostgreSQL client
+      # Run SeaORM migrations to initialize database schema and seed data
+      - name: Run SeaORM Migrations
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          # Show migration status before running
+          echo "Checking migration status..."
+          cargo run -p migration -- status || echo "No migrations table found, will create"
 
-      # Initialize database with seed files
-      - name: Initialize Database
-        run: |
-          export PGPASSWORD=pass
-          for file in db-seed/*.sql; do
-            if [ -f "$file" ]; then
-              echo "Executing $file..."
-              psql -h localhost -p 5432 -U testuser -d testdb -f "$file"
-            fi
-          done
+          # Run migrations
+          echo "Running migrations..."
+          cargo run -p migration -- up
+
+          # Show final status
+          echo "Final migration status:"
+          cargo run -p migration -- status
         env:
-          PGPASSWORD: pass
+          DATABASE_URL: "postgres://testuser:pass@localhost:5432/testdb"
 
       - name: Run tests
         uses: actions-rs/cargo@v1
@@ -71,9 +69,9 @@ jobs:
           DATABASE_URL: "postgres://testuser:pass@localhost:5432/testdb"
           DATABASE_MAX_CONNECTIONS: 5
           DATABASE_MIN_CONNECTIONS: 1
-          SVC_HOST: 0.0.0.0
+          SERVICE_HOST: 0.0.0.0
           SERVICE_PORT: 8090
-          RUST_LOG: "debug,sqlx=debug,tower_http=info,axum::rejection=trace"
+          RUST_LOG: "debug,sea_orm=debug,tower_http=info,axum::rejection=trace"
           JWT_SECRET_KEY: "your_jwt_secret_key_mRMNj0ubratwHOakMmfnRRDbnSD6U1kzf9IgPPRqrpk="
           ASSETS_HOME_PATH: "assets"
           ASSETS_PUBLIC_PATH: "assets/public"

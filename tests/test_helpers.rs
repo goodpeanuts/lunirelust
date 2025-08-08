@@ -19,13 +19,13 @@ use lunirelust::{
     app::create_router,
     common::{
         bootstrap::build_app_state,
-        config::Config,
+        config::{setup_database, Config},
         dto::RestApiResponse,
         jwt::{AuthBody, AuthPayload},
     },
 };
 
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sea_orm::DatabaseConnection;
 use tower::ServiceExt as _;
 
 static INIT: Once = Once::new();
@@ -50,16 +50,10 @@ fn load_test_env() {
 }
 
 /// Helper function to set up the test database state
-pub async fn setup_test_db() -> Result<PgPool, Box<dyn std::error::Error>> {
+pub async fn setup_test_db() -> Result<DatabaseConnection, Box<dyn std::error::Error>> {
     load_test_env();
     let config = Config::from_env()?;
-
-    let pool = PgPoolOptions::new()
-        .max_connections(config.database_max_connections)
-        .min_connections(config.database_min_connections)
-        .connect(&config.database_url)
-        .await?;
-
+    let pool = setup_database(&config).await?;
     Ok(pool)
 }
 

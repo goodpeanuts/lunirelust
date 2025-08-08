@@ -1,2 +1,13 @@
 /target
 .DS_Store
+
+
+# Database data directory
+/db
+
+# Environment files
+.env
+!.env.example
+
+# test images, will genereate after running tests
+cat(*).png

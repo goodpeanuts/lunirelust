@@ -1,147 +1,122 @@
 use async_trait::async_trait;
-use sqlx::QueryBuilder;
-use sqlx::{PgPool, Postgres, Transaction};
+use sea_orm::{
+    ActiveModelTrait as _, DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait as _, Set,
+};
+use std::str::FromStr as _;
 use uuid::Uuid;
 
-use crate::domains::device::domain::model::Device;
+use crate::domains::device::domain::model::{Device, DeviceOS, DeviceStatus};
 use crate::domains::device::domain::repository::DeviceRepository;
 use crate::domains::device::dto::device_dto::{
     CreateDeviceDto, UpdateDeviceDto, UpdateManyDevicesDto,
 };
+use crate::entities::devices;
 
 pub struct DeviceRepo;
 
-const FIND_DEVICE_INFO_QUERY: &str = r#"
-    select
-        id,
-        user_id,
-        name,
-        status,
-        device_os,
-        registered_at,
-        created_by,
-        created_at,
-        modified_by,
-        modified_at
-    from
-        devices
-    where
-        id = $1
-    "#;
+impl DeviceRepo {
+    fn entity_to_model(entity: devices::Model) -> Result<Device, DbErr> {
+        Ok(Device {
+            id: entity.id,
+            user_id: entity.user_id,
+            name: entity.name,
+            device_os: DeviceOS::from_str(&entity.device_os)
+                .map_err(|e| DbErr::Type(e.to_string()))?,
+            status: DeviceStatus::from_str(&entity.status)
+                .map_err(|e| DbErr::Type(e.to_string()))?,
+            registered_at: entity.registered_at,
+            created_by: entity.created_by,
+            created_at: entity.created_at,
+            modified_by: entity.modified_by,
+            modified_at: entity.modified_at,
+        })
+    }
+}
 
 #[async_trait]
 impl DeviceRepository for DeviceRepo {
-    async fn find_all(&self, pool: PgPool) -> Result<Vec<Device>, sqlx::Error> {
-        let devices = sqlx::query_as::<_, Device>(
-            r#"
-            select
-                id,
-                user_id,
-                name,
-                status,
-                device_os,
-                registered_at,
-                created_by,
-                created_at,
-                modified_by,
-                modified_at
-            from
-                devices
-            "#,
-        )
-        .fetch_all(&pool)
-        .await?;
+    async fn find_all(&self, db: &DatabaseConnection) -> Result<Vec<Device>, DbErr> {
+        let devices = devices::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(Self::entity_to_model)
+            .collect::<Result<Vec<_>, DbErr>>()?;
 
         Ok(devices)
     }
 
-    async fn find_by_id(&self, pool: PgPool, id: String) -> Result<Option<Device>, sqlx::Error> {
-        let device = sqlx::query_as::<_, Device>(FIND_DEVICE_INFO_QUERY)
-            .bind(id)
-            .fetch_optional(&pool)
-            .await?;
+    async fn find_by_id(
+        &self,
+        db: &DatabaseConnection,
+        id: String,
+    ) -> Result<Option<Device>, DbErr> {
+        let device = devices::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .map(Self::entity_to_model)
+            .transpose()?;
 
         Ok(device)
     }
 
     async fn create(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &DatabaseTransaction,
         device: CreateDeviceDto,
-    ) -> Result<Device, sqlx::Error> {
+    ) -> Result<Device, DbErr> {
         let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
 
-        sqlx::query!(
-            r#"
-            INSERT INTO devices
-            (id, user_id, name, status, device_os, registered_at, created_by, created_at, modified_by, modified_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, now())
-            "#,
-            id.clone(),
-            device.user_id.clone(),
-            device.name.clone(),
-            device.status.to_string(),
-            device.device_os.to_string(),
-            device.registered_at,
-            device.modified_by.clone(),
-            device.modified_by
-        )
-        .execute(&mut **tx)
-        .await?;
+        let active_device = devices::ActiveModel {
+            id: Set(id.clone()),
+            user_id: Set(device.user_id),
+            name: Set(device.name),
+            status: Set(device.status.to_string()),
+            device_os: Set(device.device_os.to_string()),
+            registered_at: Set(device.registered_at),
+            created_by: Set(Some(device.modified_by.clone())),
+            created_at: Set(Some(now)),
+            modified_by: Set(Some(device.modified_by)),
+            modified_at: Set(Some(now)),
+        };
 
-        let inserted_device = sqlx::query_as::<_, Device>(FIND_DEVICE_INFO_QUERY)
-            .bind(id)
-            .fetch_one(&mut **tx)
-            .await?;
-
-        Ok(inserted_device)
+        let inserted = active_device.insert(tx).await?;
+        Self::entity_to_model(inserted)
     }
 
     async fn update(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &DatabaseTransaction,
         id: String,
         device: UpdateDeviceDto,
-    ) -> Result<Option<Device>, sqlx::Error> {
-        let existing = sqlx::query!(r#"SELECT id FROM devices WHERE id = $1"#, id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    ) -> Result<Option<Device>, DbErr> {
+        let existing = devices::Entity::find_by_id(&id).one(tx).await?;
 
-        if existing.is_some() {
-            let mut builder = QueryBuilder::<_>::new("UPDATE devices SET ");
-
-            builder.push(" modified_at = NOW()");
+        if let Some(entity) = existing {
+            let mut active_device: devices::ActiveModel = entity.into();
 
             if let Some(value) = device.user_id {
-                builder.push(", user_id = ").push_bind(value);
+                active_device.user_id = Set(value);
             }
             if let Some(value) = device.name {
-                builder.push(", name = ").push_bind(value);
+                active_device.name = Set(value);
             }
             if let Some(value) = device.status {
-                builder.push(", status = ").push_bind(value.to_string());
+                active_device.status = Set(value.to_string());
             }
             if let Some(value) = device.device_os {
-                builder.push(", device_os = ").push_bind(value.to_string());
+                active_device.device_os = Set(value.to_string());
             }
             if let Some(value) = device.registered_at {
-                builder.push(", registered_at = ").push_bind(value);
+                active_device.registered_at = Set(Some(value));
             }
 
-            builder
-                .push(", modified_by = ")
-                .push_bind(device.modified_by.clone());
+            active_device.modified_by = Set(Some(device.modified_by));
+            active_device.modified_at = Set(Some(chrono::Utc::now()));
 
-            builder.push(" WHERE id = ").push_bind(&id);
-            let query = builder.build();
-            query.execute(&mut **tx).await?;
-
-            let updated_device = sqlx::query_as::<_, Device>(FIND_DEVICE_INFO_QUERY)
-                .bind(&id)
-                .fetch_one(&mut **tx)
-                .await?;
-
-            return Ok(Some(updated_device));
+            let updated = active_device.update(tx).await?;
+            return Ok(Some(Self::entity_to_model(updated)?));
         }
 
         Ok(None)
@@ -149,64 +124,55 @@ impl DeviceRepository for DeviceRepo {
 
     async fn update_many(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &DatabaseTransaction,
         user_id: String,
         modified_by: String,
         update_devices: UpdateManyDevicesDto,
-    ) -> Result<(), sqlx::Error> {
-        let mut builder = QueryBuilder::<_>::new(
-            r#"
-            INSERT INTO devices
-            (id, user_id, name, status, device_os, registered_at, created_by, created_at, modified_by, modified_at)
-            "#,
-        );
+    ) -> Result<(), DbErr> {
+        let now = chrono::Utc::now();
 
-        let now = chrono::Utc::now().naive_utc();
+        let active_devices: Vec<devices::ActiveModel> = update_devices
+            .devices
+            .into_iter()
+            .map(|device| {
+                let device_id = device.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+                devices::ActiveModel {
+                    id: Set(device_id),
+                    user_id: Set(user_id.clone()),
+                    name: Set(device.name),
+                    status: Set(device.status.to_string()),
+                    device_os: Set(device.device_os.to_string()),
+                    registered_at: Set(Some(now)),
+                    created_by: Set(Some(modified_by.clone())),
+                    created_at: Set(Some(now)),
+                    modified_by: Set(Some(modified_by.clone())),
+                    modified_at: Set(Some(now)),
+                }
+            })
+            .collect();
 
-        builder.push_values(update_devices.devices.iter(), |mut b, device| {
-            b.push_bind(
-                device
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| Uuid::new_v4().to_string()),
+        // Use batch insert with upsert (on_conflict)
+        devices::Entity::insert_many(active_devices)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(devices::Column::Id)
+                    .update_columns([
+                        devices::Column::Name,
+                        devices::Column::Status,
+                        devices::Column::DeviceOs,
+                        devices::Column::ModifiedBy,
+                        devices::Column::ModifiedAt,
+                    ])
+                    .to_owned(),
             )
-            .push_bind(&user_id)
-            .push_bind(&device.name)
-            .push_bind(device.status.to_string())
-            .push_bind(device.device_os.to_string())
-            .push_bind(now)
-            .push_bind(&modified_by)
-            .push_bind(now)
-            .push_bind(&modified_by)
-            .push_bind(now);
-        });
-
-        builder.push(
-            r#"
-            ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            status = EXCLUDED.status,
-            device_os = EXCLUDED.device_os,
-            modified_by = EXCLUDED.modified_by,
-            modified_at = EXCLUDED.modified_at
-            "#,
-        );
-
-        let query = builder.build();
-        query.execute(&mut **tx).await?;
+            .exec(tx)
+            .await?;
 
         Ok(())
     }
 
-    async fn delete(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        id: String,
-    ) -> Result<bool, sqlx::Error> {
-        let res = sqlx::query!(r#"DELETE FROM devices WHERE id = $1"#, id)
-            .execute(&mut **tx)
-            .await?;
+    async fn delete(&self, tx: &DatabaseTransaction, id: String) -> Result<bool, DbErr> {
+        let result = devices::Entity::delete_by_id(id).exec(tx).await?;
 
-        Ok(res.rows_affected() > 0)
+        Ok(result.rows_affected > 0)
     }
 }

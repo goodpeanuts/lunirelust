@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
-      SQLX_OFFLINE: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -30,7 +29,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
-      SQLX_OFFLINE: true
     strategy:
       fail-fast: false
       matrix:

@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sea_orm::{DatabaseConnection, TransactionTrait as _};
 use std::sync::Arc;
 
 /// Service struct for handling user-related operations
@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// It uses a repository pattern to abstract the data access layer.
 #[derive(Clone)]
 pub struct UserService {
-    pub pool: PgPool,
+    pub db: DatabaseConnection,
     pub repo: Arc<dyn UserRepository + Send + Sync>,
     pub file_service: Arc<dyn FileServiceTrait>,
 }
@@ -27,11 +27,11 @@ pub struct UserService {
 impl UserServiceTrait for UserService {
     /// constructor for the service.
     fn create_service(
-        pool: PgPool,
+        db: DatabaseConnection,
         file_service: Arc<dyn FileServiceTrait>,
     ) -> Arc<dyn UserServiceTrait> {
         Arc::new(Self {
-            pool,
+            db,
             repo: Arc::new(UserRepo {}),
             file_service,
         })
@@ -39,7 +39,7 @@ impl UserServiceTrait for UserService {
 
     /// Retrieves a user by their ID.
     async fn get_user_by_id(&self, id: String) -> Result<UserDto, AppError> {
-        match self.repo.find_by_id(self.pool.clone(), id).await {
+        match self.repo.find_by_id(&self.db, id).await {
             Ok(Some(user)) => Ok(UserDto::from(user)),
             Ok(None) => Err(AppError::NotFound("User not found".into())),
             Err(err) => {
@@ -50,16 +50,12 @@ impl UserServiceTrait for UserService {
     }
 
     /// Retrieves user list by condition
-    /// Returns a vector of UserDto objects.
+    /// Returns a vector of `UserDto` objects.
     async fn get_user_list(
         &self,
         search_user_dto: SearchUserDto,
     ) -> Result<Vec<UserDto>, AppError> {
-        match self
-            .repo
-            .find_list(self.pool.clone(), search_user_dto)
-            .await
-        {
+        match self.repo.find_list(&self.db, search_user_dto).await {
             Ok(users) => {
                 let user_dtos: Vec<UserDto> = users.into_iter().map(Into::into).collect();
                 Ok(user_dtos)
@@ -72,9 +68,9 @@ impl UserServiceTrait for UserService {
     }
 
     /// Retrieves all users.
-    /// Returns a vector of UserDto objects.
+    /// Returns a vector of `UserDto` objects.
     async fn get_users(&self) -> Result<Vec<UserDto>, AppError> {
-        match self.repo.find_all(self.pool.clone()).await {
+        match self.repo.find_all(&self.db).await {
             Ok(users) => {
                 let user_dtos: Vec<UserDto> = users.into_iter().map(Into::into).collect();
                 Ok(user_dtos)
@@ -86,19 +82,19 @@ impl UserServiceTrait for UserService {
         }
     }
     /// Creates a new user.
-    /// Takes a CreateUserMultipartDto object and an optional UploadFileDto object.
+    /// Takes a `CreateUserMultipartDto` object and an optional `UploadFileDto` object.
     async fn create_user(
         &self,
         create_user: CreateUserMultipartDto,
         upload_file_dto: Option<&mut UploadFileDto>,
     ) -> Result<UserDto, AppError> {
-        let mut tx = self.pool.begin().await?;
+        let txn = self.db.begin().await?;
 
-        let user_id = match self.repo.create(&mut tx, create_user).await {
+        let user_id = match self.repo.create(&txn, create_user).await {
             Ok(user_id) => user_id,
             Err(err) => {
                 tracing::error!("Error creating user: {err}");
-                tx.rollback().await?;
+                txn.rollback().await?;
                 return Err(AppError::DatabaseError(err));
             }
         };
@@ -106,13 +102,13 @@ impl UserServiceTrait for UserService {
         if let Some(upload_file_dto) = upload_file_dto {
             upload_file_dto.user_id = Some(user_id.clone());
             self.file_service
-                .process_profile_picture_upload(&mut tx, upload_file_dto)
+                .process_profile_picture_upload(&txn, upload_file_dto)
                 .await?;
         }
 
-        tx.commit().await?;
+        txn.commit().await?;
 
-        match self.repo.find_by_id(self.pool.clone(), user_id).await {
+        match self.repo.find_by_id(&self.db, user_id).await {
             Ok(Some(user)) => Ok(UserDto::from(user)),
             Ok(None) => Err(AppError::NotFound("User not found".into())),
             Err(err) => {
@@ -124,20 +120,20 @@ impl UserServiceTrait for UserService {
 
     /// Updates an existing user.
     async fn update_user(&self, id: String, payload: UpdateUserDto) -> Result<UserDto, AppError> {
-        let mut tx = self.pool.begin().await?;
+        let txn = self.db.begin().await?;
 
-        match self.repo.update(&mut tx, id.clone(), payload).await {
+        match self.repo.update(&txn, id.clone(), payload).await {
             Ok(Some(user)) => {
-                tx.commit().await?;
+                txn.commit().await?;
                 Ok(UserDto::from(user))
             }
             Ok(None) => {
-                tx.rollback().await?;
+                txn.rollback().await?;
                 Err(AppError::NotFound("User not found".into()))
             }
             Err(err) => {
                 tracing::error!("Error updating user: {err}");
-                tx.rollback().await?;
+                txn.rollback().await?;
                 Err(AppError::DatabaseError(err))
             }
         }
@@ -145,20 +141,20 @@ impl UserServiceTrait for UserService {
 
     /// Deletes a user by their ID.
     async fn delete_user(&self, id: String) -> Result<String, AppError> {
-        let mut tx = self.pool.begin().await?;
+        let txn = self.db.begin().await?;
 
-        match self.repo.delete(&mut tx, id.clone()).await {
+        match self.repo.delete(&txn, id.clone()).await {
             Ok(true) => {
-                tx.commit().await?;
+                txn.commit().await?;
                 Ok("User deleted".into())
             }
             Ok(false) => {
-                tx.rollback().await?;
+                txn.rollback().await?;
                 Err(AppError::NotFound("User not found".into()))
             }
             Err(err) => {
                 tracing::error!("Error deleting user: {err}");
-                tx.rollback().await?;
+                txn.rollback().await?;
                 Err(AppError::DatabaseError(err))
             }
         }

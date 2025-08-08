@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use sea_orm::DatabaseConnection;
 
 use crate::common::config::Config;
 use crate::domains::auth::{AuthService, AuthServiceTrait};
@@ -12,7 +12,7 @@ use crate::{common::app_state::AppState, domains::user::UserService};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 /// Constructs and wires all application services and returns a configured `AppState`.
-pub fn build_app_state(pool: &PgPool, config: Config) -> AppState {
+pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
     let auth_service: Arc<dyn AuthServiceTrait> = AuthService::create_service(pool.clone());
     let file_service: Arc<dyn FileServiceTrait> =
         FileService::create_service(config.clone(), pool.clone());

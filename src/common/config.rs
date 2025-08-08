@@ -1,5 +1,6 @@
+use migration::{Migrator, MigratorTrait as _};
 use regex::Regex;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sea_orm::{ConnectOptions, DatabaseConnection};
 use std::env;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -66,17 +67,22 @@ impl Config {
 }
 
 /// `setup_database` initializes the database connection pool.
-pub async fn setup_database(config: &Config) -> Result<PgPool, sqlx::Error> {
+pub async fn setup_database(config: &Config) -> Result<DatabaseConnection, sea_orm::DbErr> {
     // Attempt to connect repeatedly, with a small delay, until success (or a max number of tries)
     let mut attempts = 0;
+    let mut opt = ConnectOptions::new(&config.database_url);
+    opt.min_connections(config.database_min_connections)
+        .max_connections(config.database_max_connections)
+        .connect_timeout(Duration::from_secs(8))
+        .acquire_timeout(Duration::from_secs(8))
+        .idle_timeout(Duration::from_secs(8))
+        .max_lifetime(Duration::from_secs(8));
+    // .sqlx_logging(true)
+    // .sqlx_logging_level(tracing::Level::INFO);
+
     let pool = loop {
         attempts += 1;
-        match PgPoolOptions::new()
-            .max_connections(config.database_max_connections)
-            .min_connections(config.database_min_connections)
-            .connect(&config.database_url)
-            .await
-        {
+        match sea_orm::Database::connect(opt.clone()).await {
             Ok(pool) => break pool,
             Err(err) => {
                 if attempts >= 3 {
@@ -90,6 +96,9 @@ pub async fn setup_database(config: &Config) -> Result<PgPool, sqlx::Error> {
             }
         }
     };
+
+    // Run pending migrations
+    Migrator::up(&pool, None).await?;
 
     Ok(pool)
 }

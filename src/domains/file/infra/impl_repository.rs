@@ -1,107 +1,104 @@
 use crate::domains::file::{
-    domain::{model::UploadedFile, repository::FileRepository},
+    domain::{
+        model::{FileType, UploadedFile},
+        repository::FileRepository,
+    },
     dto::file_dto::CreateFileDto,
 };
+use crate::entities::uploaded_files;
 use async_trait::async_trait;
-use sqlx::{PgPool, Postgres, Transaction};
+use sea_orm::{
+    ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
+    EntityTrait as _, QueryFilter as _, Set,
+};
+use std::str::FromStr as _;
 use uuid::Uuid;
 
 pub struct FileRepo;
 
-const FIND_FILE_INFO_QUERY: &str = r#"
-    SELECT id, user_id, file_name, origin_file_name, file_relative_path, file_url,
-            content_type, file_size, file_type, created_by,
-            created_at,
-            modified_by,
-            modified_at
-    FROM uploaded_files
-    WHERE id = $1
-"#;
+impl FileRepo {
+    fn entity_to_model(entity: uploaded_files::Model) -> Result<UploadedFile, DbErr> {
+        Ok(UploadedFile {
+            id: entity.id,
+            user_id: entity.user_id,
+            file_name: entity.file_name,
+            origin_file_name: entity.origin_file_name,
+            file_relative_path: entity.file_relative_path,
+            file_url: entity.file_url,
+            content_type: entity.content_type,
+            file_size: entity.file_size,
+            file_type: FileType::from_str(&entity.file_type)
+                .map_err(|e| DbErr::Type(e.to_string()))?,
+            created_by: entity.created_by,
+            created_at: entity.created_at.unwrap_or_default(),
+            modified_by: entity.modified_by,
+            modified_at: entity.modified_at.unwrap_or_default(),
+        })
+    }
+}
 
 #[async_trait]
 impl FileRepository for FileRepo {
     async fn create_file(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &DatabaseTransaction,
         file: CreateFileDto,
-    ) -> Result<UploadedFile, sqlx::Error> {
+    ) -> Result<UploadedFile, DbErr> {
         let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
 
-        sqlx::query!(
-            r#"
-            INSERT INTO uploaded_files
-              (id, user_id, file_name, origin_file_name, file_relative_path, file_url, content_type, file_size, file_type, created_by, modified_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            "#,
-            id.clone(),
-            file.user_id.clone(),
-            file.file_name.clone(),
-            file.origin_file_name,
-            file.file_relative_path,
-            file.file_url,
-            file.content_type,
-            file.file_size as i64,
-            file.file_type.to_string(),
-            file.modified_by.clone(),
-            file.modified_by
-        )
-        .execute(&mut **tx)
-        .await?;
+        let user_id = file
+            .user_id
+            .ok_or_else(|| DbErr::Custom("user_id is required".to_owned()))?;
 
-        let inserted_file = sqlx::query_as::<_, UploadedFile>(FIND_FILE_INFO_QUERY)
-            .bind(id)
-            .fetch_one(&mut **tx)
-            .await?;
+        let active_file = uploaded_files::ActiveModel {
+            id: Set(id.clone()),
+            user_id: Set(user_id),
+            file_name: Set(file.file_name),
+            origin_file_name: Set(file.origin_file_name),
+            file_relative_path: Set(file.file_relative_path),
+            file_url: Set(file.file_url),
+            content_type: Set(file.content_type),
+            file_size: Set(file.file_size as i64),
+            file_type: Set(file.file_type.to_string()),
+            created_by: Set(Some(file.modified_by.clone())),
+            created_at: Set(Some(now)),
+            modified_by: Set(Some(file.modified_by)),
+            modified_at: Set(Some(now)),
+        };
 
-        Ok(inserted_file)
-    }
-
-    async fn find_by_user_id(
-        &self,
-        pool: PgPool,
-        user_id: String,
-    ) -> Result<Option<UploadedFile>, sqlx::Error> {
-        let uploaded_file = sqlx::query_as!(
-            UploadedFile,
-            r#"
-            SELECT id, user_id, file_name, origin_file_name, file_relative_path, file_url,
-                content_type, file_size, file_type, created_by,
-                created_at,
-                modified_by,
-                modified_at
-            FROM uploaded_files
-            WHERE user_id = $1
-            "#,
-            user_id
-        )
-        .fetch_optional(&pool)
-        .await?;
-
-        Ok(uploaded_file)
+        let inserted = active_file.insert(tx).await?;
+        Self::entity_to_model(inserted)
     }
 
     async fn find_by_id(
         &self,
-        pool: PgPool,
+        db: &DatabaseConnection,
         id: String,
-    ) -> Result<Option<UploadedFile>, sqlx::Error> {
-        let uploaded_file = sqlx::query_as::<_, UploadedFile>(FIND_FILE_INFO_QUERY)
-            .bind(id)
-            .fetch_optional(&pool)
-            .await?;
-
-        Ok(uploaded_file)
+    ) -> Result<Option<UploadedFile>, DbErr> {
+        uploaded_files::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .map(Self::entity_to_model)
+            .transpose()
     }
 
-    async fn delete(
+    async fn find_by_user_id(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
-        id: String,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(r#"DELETE FROM uploaded_files WHERE id = $1"#, id)
-            .execute(&mut **tx)
-            .await?;
+        db: &DatabaseConnection,
+        user_id: String,
+    ) -> Result<Option<UploadedFile>, DbErr> {
+        uploaded_files::Entity::find()
+            .filter(uploaded_files::Column::UserId.eq(user_id))
+            .one(db)
+            .await?
+            .map(Self::entity_to_model)
+            .transpose()
+    }
 
-        Ok(result.rows_affected() > 0)
+    async fn delete(&self, tx: &DatabaseTransaction, id: String) -> Result<bool, DbErr> {
+        let result = uploaded_files::Entity::delete_by_id(id).exec(tx).await?;
+
+        Ok(result.rows_affected > 0)
     }
 }

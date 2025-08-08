@@ -1,51 +1,50 @@
 use async_trait::async_trait;
-use sqlx::{PgPool, Postgres, Transaction};
+use sea_orm::{
+    ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
+    EntityTrait as _, JoinType, QueryFilter as _, QuerySelect as _, RelationTrait as _, Set,
+};
 
 use crate::domains::auth::domain::model::UserAuth;
 use crate::domains::auth::domain::repository::UserAuthRepository;
+use crate::entities::{user_auth, users};
+
 pub struct UserAuthRepo;
+
+impl UserAuthRepo {
+    fn entity_to_model(entity: user_auth::Model) -> UserAuth {
+        UserAuth {
+            user_id: entity.user_id,
+            password_hash: entity.password_hash,
+        }
+    }
+}
 
 #[async_trait]
 impl UserAuthRepository for UserAuthRepo {
     async fn find_by_user_name(
         &self,
-        pool: PgPool,
+        db: &DatabaseConnection,
         user_name: String,
-    ) -> Result<Option<UserAuth>, sqlx::Error> {
-        let result = sqlx::query_as!(
-            UserAuth,
-            r#"
-            SELECT ua.user_id, ua.password_hash
-              FROM user_auth ua
-              JOIN users u ON ua.user_id = u.id
-              WHERE u.username = $1
-            "#,
-            user_name
-        )
-        .fetch_optional(&pool)
-        .await?;
+    ) -> Result<Option<UserAuth>, DbErr> {
+        let result = user_auth::Entity::find()
+            .join(JoinType::InnerJoin, user_auth::Relation::Users.def())
+            .filter(users::Column::Username.eq(user_name))
+            .one(db)
+            .await?
+            .map(Self::entity_to_model);
 
         Ok(result)
     }
 
-    async fn create(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        user_auth: UserAuth,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            INSERT INTO user_auth
-            (user_id, password_hash)
-            VALUES
-            ($1, $2)
-            "#,
-            user_auth.user_id,
-            user_auth.password_hash
-        )
-        .execute(&mut **tx)
-        .await?;
+    async fn create(&self, tx: &DatabaseTransaction, user_auth: UserAuth) -> Result<(), DbErr> {
+        let active_user_auth = user_auth::ActiveModel {
+            user_id: Set(user_auth.user_id),
+            password_hash: Set(user_auth.password_hash),
+            created_at: Set(Some(chrono::Utc::now())),
+            modified_at: Set(Some(chrono::Utc::now())),
+        };
 
+        active_user_auth.insert(tx).await?;
         Ok(())
     }
 }
