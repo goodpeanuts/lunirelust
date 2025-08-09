@@ -5,7 +5,7 @@ use crate::{
         error::AppError,
         jwt::{AuthBody, AuthPayload},
     },
-    domains::auth::dto::auth_dto::AuthUserDto,
+    domains::auth::dto::auth_dto::RegisterDto,
 };
 use axum::extract::State;
 use axum::{response::IntoResponse, Json};
@@ -15,13 +15,13 @@ use axum::{response::IntoResponse, Json};
 #[utoipa::path(
     post,
     path = "/auth/register",
-    request_body = AuthUserDto,
-    responses((status = 200, description = "Create user authentication", body = AuthUserDto)),
+    request_body = RegisterDto,
+    responses((status = 200, description = "Create user authentication", body = RegisterDto)),
     tag = "UserAuth"
 )]
 pub async fn create_user_auth(
     State(state): State<AppState>,
-    Json(payload): Json<AuthUserDto>,
+    Json(payload): Json<RegisterDto>,
 ) -> Result<impl IntoResponse, AppError> {
     state.auth_service.create_user_auth(payload).await?;
     Ok(RestApiResponse::success(()))

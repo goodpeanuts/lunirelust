@@ -163,3 +163,20 @@ pub async fn delete_user(
     let message = state.user_service.delete_user(id).await?;
     Ok(RestApiResponse::success_with_message(message, ()))
 }
+
+#[utoipa::path(
+    get,
+    path = "/user/me",
+    responses((status = 200, description = "Get current user info", body = UserDto)),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Users"
+)]
+pub async fn get_current_user(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = state.user_service.get_user_by_id(claims.sub).await?;
+    Ok(RestApiResponse::success(user))
+}

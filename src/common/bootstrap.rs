@@ -13,11 +13,12 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _
 
 /// Constructs and wires all application services and returns a configured `AppState`.
 pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
-    let auth_service: Arc<dyn AuthServiceTrait> = AuthService::create_service(pool.clone());
     let file_service: Arc<dyn FileServiceTrait> =
         FileService::create_service(config.clone(), pool.clone());
     let user_service: Arc<dyn UserServiceTrait> =
         UserService::create_service(pool.clone(), Arc::clone(&file_service));
+    let auth_service: Arc<dyn AuthServiceTrait> =
+        AuthService::create_service(pool.clone(), Arc::clone(&user_service));
     let device_service: Arc<dyn DeviceServiceTrait> = DeviceService::create_service(pool.clone());
 
     AppState::new(

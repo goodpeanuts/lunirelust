@@ -10,7 +10,7 @@ use crate::{
         error::AppError,
         jwt::{AuthBody, AuthPayload},
     },
-    domains::auth::dto::auth_dto::AuthUserDto,
+    domains::{auth::dto::auth_dto::RegisterDto, user::UserServiceTrait},
 };
 
 #[async_trait::async_trait]
@@ -18,12 +18,15 @@ use crate::{
 /// Implementors are responsible for handling user creation and login logic.
 pub trait AuthServiceTrait: Send + Sync {
     /// constructor for the service.
-    fn create_service(pool: DatabaseConnection) -> Arc<dyn AuthServiceTrait>
+    fn create_service(
+        pool: DatabaseConnection,
+        user_service: Arc<dyn UserServiceTrait>,
+    ) -> Arc<dyn AuthServiceTrait>
     where
         Self: Sized;
 
     /// Registers a new user authentication entry.
-    async fn create_user_auth(&self, auth_user: AuthUserDto) -> Result<(), AppError>;
+    async fn create_user_auth(&self, register_dto: RegisterDto) -> Result<(), AppError>;
 
     /// Authenticates a user and returns a JWT token payload on success.
     async fn login_user(&self, auth_payload: AuthPayload) -> Result<AuthBody, AppError>;

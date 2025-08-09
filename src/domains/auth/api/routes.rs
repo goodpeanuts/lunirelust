@@ -13,7 +13,7 @@ use utoipa::OpenApi;
         super::handlers::create_user_auth,
     ),
     components(schemas(
-        crate::domains::auth::dto::auth_dto::AuthUserDto,
+        crate::domains::auth::dto::auth_dto::RegisterDto,
         crate::common::jwt::AuthPayload,
         crate::common::jwt::AuthBody,
     )),

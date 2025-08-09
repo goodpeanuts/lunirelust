@@ -30,7 +30,7 @@ sea-orm = { version = "1", features = [
 migration = { path = "migration" }
 thiserror = "1.0.58"
 tower = { version = "0.5.2", features = ["timeout"] }
-tower-http = { version = "0.6.2", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.6.2", features = ["cors", "trace", "fs", "normalize-path"] }
 utoipa = { version = "5.3.1", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 async-trait = "0.1.88"

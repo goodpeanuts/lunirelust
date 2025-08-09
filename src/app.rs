@@ -14,6 +14,7 @@ use http_body_util::BodyExt as _;
 
 use std::time::Duration;
 use tower::ServiceBuilder;
+use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::{
     cors::{Any, CorsLayer},
     services::ServeDir,
@@ -120,6 +121,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_swagger_ui())
         .merge(public_assets_routes)
         .merge(private_assets_routes)
+        .layer(NormalizePathLayer::trim_trailing_slash())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &axum::http::Request<_>| {

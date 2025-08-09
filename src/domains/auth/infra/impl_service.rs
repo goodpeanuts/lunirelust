@@ -6,10 +6,13 @@ use crate::{
         hash_util,
         jwt::{make_jwt_token, AuthBody, AuthPayload},
     },
-    domains::auth::{
-        domain::{model::UserAuth, repository::UserAuthRepository, service::AuthServiceTrait},
-        dto::auth_dto::AuthUserDto,
-        infra::impl_repository::UserAuthRepo,
+    domains::{
+        auth::{
+            domain::{model::UserAuth, repository::UserAuthRepository, service::AuthServiceTrait},
+            dto::auth_dto::RegisterDto,
+            infra::impl_repository::UserAuthRepo,
+        },
+        user::{dto::user_dto::CreateUserMultipartDto, UserServiceTrait},
     },
 };
 
@@ -21,28 +24,46 @@ use sea_orm::{DatabaseConnection, TransactionTrait as _};
 pub struct AuthService {
     db: DatabaseConnection,
     repo: Arc<dyn UserAuthRepository + Send + Sync>,
+    user_service: Arc<dyn UserServiceTrait>,
 }
 
 /// Implementation of the `AuthService`
 #[async_trait::async_trait]
 impl AuthServiceTrait for AuthService {
     /// constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn AuthServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        user_service: Arc<dyn UserServiceTrait>,
+    ) -> Arc<dyn AuthServiceTrait> {
         Arc::new(Self {
             db,
             repo: Arc::new(UserAuthRepo {}),
+            user_service,
         })
     }
 
     /// It hashes the password and stores it in the database.
-    async fn create_user_auth(&self, auth_user: AuthUserDto) -> Result<(), AppError> {
+    async fn create_user_auth(&self, register_dto: RegisterDto) -> Result<(), AppError> {
         let tx = self.db.begin().await?;
 
-        let password_hash = hash_util::hash_password(&auth_user.password)
+        let user_dto = self
+            .user_service
+            .create_user(
+                CreateUserMultipartDto {
+                    username: register_dto.username,
+                    email: register_dto.email,
+                    modified_by: "system".to_owned(), // Or get from authenticated user
+                    profile_picture: None,
+                },
+                None,
+            )
+            .await?;
+
+        let password_hash = hash_util::hash_password(&register_dto.password)
             .map_err(|e| AppError::InternalErrorWithMessage(e.to_string()))?;
 
         let user_auth = UserAuth {
-            user_id: auth_user.user_id,
+            user_id: user_dto.id,
             password_hash,
         };
 
