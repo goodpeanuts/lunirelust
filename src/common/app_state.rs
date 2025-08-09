@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::domains::{
     auth::AuthServiceTrait, device::DeviceServiceTrait, file::FileServiceTrait,
-    user::UserServiceTrait,
+    luna::LunaServiceTrait, user::UserServiceTrait,
 };
 
 use super::config::Config;
@@ -21,6 +21,8 @@ pub struct AppState {
     pub device_service: Arc<dyn DeviceServiceTrait>,
     /// Service handling file-related logic.
     pub file_service: Arc<dyn FileServiceTrait>,
+    /// Service handling luna (cards) related logic.
+    pub luna_service: Arc<dyn LunaServiceTrait>,
 }
 
 impl AppState {
@@ -31,6 +33,7 @@ impl AppState {
         user_service: Arc<dyn UserServiceTrait>,
         device_service: Arc<dyn DeviceServiceTrait>,
         file_service: Arc<dyn FileServiceTrait>,
+        luna_service: Arc<dyn LunaServiceTrait>,
     ) -> Self {
         Self {
             config,
@@ -38,6 +41,7 @@ impl AppState {
             user_service,
             device_service,
             file_service,
+            luna_service,
         }
     }
 }

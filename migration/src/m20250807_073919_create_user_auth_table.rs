@@ -40,7 +40,8 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk_user_auth_user_id")
                             .from(UserAuth::Table, UserAuth::UserId)
-                            .to(Users::Table, Users::Id),
+                            .to(Users::Table, Users::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )

@@ -6,6 +6,7 @@ use crate::common::config::Config;
 use crate::domains::auth::{AuthService, AuthServiceTrait};
 use crate::domains::device::{DeviceService, DeviceServiceTrait};
 use crate::domains::file::{FileService, FileServiceTrait};
+use crate::domains::luna::{LunaService, LunaServiceTrait};
 use crate::domains::user::UserServiceTrait;
 use crate::{common::app_state::AppState, domains::user::UserService};
 
@@ -20,6 +21,7 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
     let auth_service: Arc<dyn AuthServiceTrait> =
         AuthService::create_service(pool.clone(), Arc::clone(&user_service));
     let device_service: Arc<dyn DeviceServiceTrait> = DeviceService::create_service(pool.clone());
+    let luna_service: Arc<dyn LunaServiceTrait> = LunaService::create_service(pool.clone());
 
     AppState::new(
         config,
@@ -27,6 +29,7 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
         user_service,
         device_service,
         file_service,
+        luna_service,
     )
 }
 

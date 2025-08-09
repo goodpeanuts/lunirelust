@@ -33,6 +33,7 @@ use crate::{
         auth::{user_auth_routes, UserAuthApiDoc},
         device::{device_routes, DeviceApiDoc},
         file::{file_routes, FileApiDoc},
+        luna::{luna_routes, LunaApiDoc},
         user::{user_routes, UserApiDoc},
     },
 };
@@ -61,6 +62,7 @@ fn create_swagger_ui() -> SwaggerUi {
         .url("/api-docs/user/openapi.json", UserApiDoc::openapi())
         .url("/api-docs/device/openapi.json", DeviceApiDoc::openapi())
         .url("/api-docs/file/openapi.json", FileApiDoc::openapi())
+        .url("/api-docs/luna/openapi.json", LunaApiDoc::openapi())
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -86,6 +88,7 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/user", user_routes())
         .nest("/device", device_routes())
         .nest("/file", file_routes())
+        .nest("/cards", luna_routes())
         // by default, Multipart limits to 2MB; override with `asset_max_size`
         // See https://docs.rs/axum/latest/axum/extract/struct.Multipart.html
         .layer(DefaultBodyLimit::max(state.config.asset_max_size))
