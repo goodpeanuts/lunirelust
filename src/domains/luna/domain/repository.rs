@@ -3,10 +3,10 @@
 
 use crate::domains::luna::dto::luna_dto::{
     CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-    CreateSeriesDto, CreateStudioDto, PaginatedResponse, PaginationQuery, SearchDirectorDto,
-    SearchGenreDto, SearchIdolDto, SearchLabelDto, SearchRecordDto, SearchSeriesDto,
-    SearchStudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,
-    UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
+    CreateSeriesDto, CreateStudioDto, EntityCountDto, PaginatedResponse, PaginationQuery,
+    SearchDirectorDto, SearchGenreDto, SearchIdolDto, SearchLabelDto, SearchRecordDto,
+    SearchSeriesDto, SearchStudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto,
+    UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
 };
 
 use super::model::{Director, Genre, Idol, Label, Record, Series, Studio};
@@ -56,6 +56,12 @@ pub trait DirectorRepository: Send + Sync {
 
     /// Deletes a director by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr>;
+
+    /// Gets record counts grouped by directors.
+    async fn get_director_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr>;
 }
 
 #[async_trait]
@@ -95,6 +101,12 @@ pub trait GenreRepository: Send + Sync {
 
     /// Deletes a genre by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr>;
+
+    /// Gets record counts grouped by genres.
+    async fn get_genre_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr>;
 }
 
 #[async_trait]
@@ -126,6 +138,12 @@ pub trait IdolRepository: Send + Sync {
 
     /// Deletes an idol by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr>;
+
+    /// Gets record counts grouped by idols.
+    async fn get_idol_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr>;
 }
 
 #[async_trait]
@@ -165,6 +183,12 @@ pub trait LabelRepository: Send + Sync {
 
     /// Deletes a label by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr>;
+
+    /// Gets record counts grouped by labels.
+    async fn get_label_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr>;
 }
 
 #[async_trait]
@@ -200,6 +224,12 @@ pub trait StudioRepository: Send + Sync {
 
     /// Deletes a studio by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr>;
+
+    /// Gets record counts grouped by studios.
+    async fn get_studio_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr>;
 }
 
 #[async_trait]
@@ -235,6 +265,12 @@ pub trait SeriesRepository: Send + Sync {
 
     /// Deletes a series by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr>;
+
+    /// Gets record counts grouped by series.
+    async fn get_series_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr>;
 }
 
 #[async_trait]

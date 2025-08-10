@@ -14,11 +14,11 @@ use crate::{
         },
         dto::luna_dto::{
             CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-            CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto,
-            PaginatedResponse, PaginationQuery, RecordDto, SearchDirectorDto, SearchGenreDto,
-            SearchIdolDto, SearchLabelDto, SearchRecordDto, SearchSeriesDto, SearchStudioDto,
-            SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,
-            UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
+            CreateSeriesDto, CreateStudioDto, DirectorDto, EntityCountDto, GenreDto, IdolDto,
+            LabelDto, PaginatedResponse, PaginationQuery, RecordDto, SearchDirectorDto,
+            SearchGenreDto, SearchIdolDto, SearchLabelDto, SearchRecordDto, SearchSeriesDto,
+            SearchStudioDto, SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto,
+            UpdateIdolDto, UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
         },
         infra::impl_repository::{
             DirectorRepo, GenreRepo, IdolRepo, LabelRepo, RecordRepo, SeriesRepo, StudioRepo,
@@ -195,6 +195,14 @@ impl DirectorServiceTrait for DirectorService {
             }
         }
     }
+
+    /// Gets record counts grouped by directors.
+    async fn get_director_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
+        self.repo
+            .get_director_record_counts(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)
+    }
 }
 
 /// Service struct for handling genre-related operations.
@@ -347,6 +355,14 @@ impl GenreServiceTrait for GenreService {
             }
         }
     }
+
+    /// Gets record counts grouped by genres.
+    async fn get_genre_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
+        self.repo
+            .get_genre_record_counts(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)
+    }
 }
 
 /// Service struct for handling label-related operations.
@@ -498,6 +514,14 @@ impl LabelServiceTrait for LabelService {
                 Err(AppError::DatabaseError(err))
             }
         }
+    }
+
+    /// Gets record counts grouped by labels.
+    async fn get_label_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
+        self.repo
+            .get_label_record_counts(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)
     }
 }
 
@@ -734,6 +758,14 @@ impl StudioServiceTrait for StudioService {
             }
         }
     }
+
+    /// Gets record counts grouped by studios.
+    async fn get_studio_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
+        self.repo
+            .get_studio_record_counts(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)
+    }
 }
 
 /// Service struct for handling series-related operations.
@@ -881,6 +913,14 @@ impl SeriesServiceTrait for SeriesService {
             Err(AppError::NotFound("Series not found".into()))
         }
     }
+
+    /// Gets record counts grouped by series.
+    async fn get_series_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
+        self.repo
+            .get_series_record_counts(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)
+    }
 }
 
 /// Service struct for handling idol-related operations.
@@ -1018,6 +1058,14 @@ impl IdolServiceTrait for IdolService {
             txn.rollback().await.map_err(AppError::DatabaseError)?;
             Err(AppError::NotFound("Idol not found".into()))
         }
+    }
+
+    /// Gets record counts grouped by idols.
+    async fn get_idol_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
+        self.repo
+            .get_idol_record_counts(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)
     }
 }
 
@@ -1399,31 +1447,117 @@ impl RecordServiceTrait for RecordService {
 
     async fn get_records_by_genre(
         &self,
-        _genre_id: i64,
-        _pagination: PaginationQuery,
+        genre_id: i64,
+        pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
-        // TODO: Implement genre filtering when genre relations are implemented
-        // For now, return empty results
+        let search_dto = SearchRecordDto {
+            id: None,
+            title: None,
+            director_id: None,
+            studio_id: None,
+            label_id: None,
+            series_id: None,
+            search: None,
+        };
+
+        let all_records = self
+            .repo
+            .find_list(&self.db, search_dto)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        // Filter by genre using the genres relation
+        let filtered_records: Vec<Record> = all_records
+            .into_iter()
+            .filter(|r| r.genres.iter().any(|rg| rg.genre.id == genre_id))
+            .collect();
+
+        let limit = pagination.limit.unwrap_or(10) as usize;
+        let offset = pagination.offset.unwrap_or(0) as usize;
+
+        let total_count = filtered_records.len();
+        let paginated_records: Vec<RecordDto> = filtered_records
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(RecordDto::from)
+            .collect();
+
         Ok(PaginatedResponse {
-            count: 0,
-            next: None,
-            previous: None,
-            results: vec![],
+            count: total_count as i64,
+            next: if offset + limit < total_count {
+                Some(format!("?limit={}&offset={}", limit, offset + limit))
+            } else {
+                None
+            },
+            previous: if offset > 0 {
+                Some(format!(
+                    "?limit={}&offset={}",
+                    limit,
+                    (offset.saturating_sub(limit))
+                ))
+            } else {
+                None
+            },
+            results: paginated_records,
         })
     }
 
     async fn get_records_by_idol(
         &self,
-        _idol_id: i64,
-        _pagination: PaginationQuery,
+        idol_id: i64,
+        pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
-        // TODO: Implement idol filtering when idol relations are implemented
-        // For now, return empty results
+        let search_dto = SearchRecordDto {
+            id: None,
+            title: None,
+            director_id: None,
+            studio_id: None,
+            label_id: None,
+            series_id: None,
+            search: None,
+        };
+
+        let all_records = self
+            .repo
+            .find_list(&self.db, search_dto)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        // Filter by idol using the idols relation
+        let filtered_records: Vec<Record> = all_records
+            .into_iter()
+            .filter(|r| r.idols.iter().any(|ip| ip.idol.id == idol_id))
+            .collect();
+
+        let limit = pagination.limit.unwrap_or(10) as usize;
+        let offset = pagination.offset.unwrap_or(0) as usize;
+
+        let total_count = filtered_records.len();
+        let paginated_records: Vec<RecordDto> = filtered_records
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(RecordDto::from)
+            .collect();
+
         Ok(PaginatedResponse {
-            count: 0,
-            next: None,
-            previous: None,
-            results: vec![],
+            count: total_count as i64,
+            next: if offset + limit < total_count {
+                Some(format!("?limit={}&offset={}", limit, offset + limit))
+            } else {
+                None
+            },
+            previous: if offset > 0 {
+                Some(format!(
+                    "?limit={}&offset={}",
+                    limit,
+                    (offset.saturating_sub(limit))
+                ))
+            } else {
+                None
+            },
+            results: paginated_records,
         })
     }
 }

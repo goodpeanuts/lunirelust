@@ -5,7 +5,7 @@ use crate::{
     common::error::AppError,
     domains::luna::dto::luna_dto::{
         CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-        CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto,
+        CreateSeriesDto, CreateStudioDto, DirectorDto, EntityCountDto, GenreDto, IdolDto, LabelDto,
         PaginatedResponse, PaginationQuery, RecordDto, SearchDirectorDto, SearchGenreDto,
         SearchIdolDto, SearchLabelDto, SearchRecordDto, SearchSeriesDto, SearchStudioDto,
         SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,
@@ -57,6 +57,9 @@ pub trait DirectorServiceTrait: Send + Sync {
 
     /// Deletes a director by their unique identifier.
     async fn delete_director(&self, id: i64) -> Result<String, AppError>;
+
+    /// Gets record counts grouped by directors.
+    async fn get_director_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
 }
 
 #[async_trait]
@@ -91,6 +94,9 @@ pub trait GenreServiceTrait: Send + Sync {
 
     /// Deletes a genre by their unique identifier.
     async fn delete_genre(&self, id: i64) -> Result<String, AppError>;
+
+    /// Gets record counts grouped by genres.
+    async fn get_genre_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
 }
 
 #[async_trait]
@@ -125,6 +131,9 @@ pub trait LabelServiceTrait: Send + Sync {
 
     /// Deletes a label by their unique identifier.
     async fn delete_label(&self, id: i64) -> Result<String, AppError>;
+
+    /// Gets record counts grouped by labels.
+    async fn get_label_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
 }
 
 #[async_trait]
@@ -166,6 +175,9 @@ pub trait StudioServiceTrait: Send + Sync {
 
     /// Deletes a studio by their unique identifier.
     async fn delete_studio(&self, id: i64) -> Result<String, AppError>;
+
+    /// Gets record counts grouped by studios.
+    async fn get_studio_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
 }
 
 #[async_trait]
@@ -207,6 +219,9 @@ pub trait SeriesServiceTrait: Send + Sync {
 
     /// Deletes a series by their unique identifier.
     async fn delete_series(&self, id: i64) -> Result<String, AppError>;
+
+    /// Gets record counts grouped by series.
+    async fn get_series_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
 }
 
 #[async_trait]
@@ -241,6 +256,9 @@ pub trait IdolServiceTrait: Send + Sync {
 
     /// Deletes an idol by their unique identifier.
     async fn delete_idol(&self, id: i64) -> Result<String, AppError>;
+
+    /// Gets record counts grouped by idols.
+    async fn get_idol_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
 }
 
 #[async_trait]

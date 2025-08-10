@@ -2,11 +2,11 @@ use crate::{
     common::{app_state::AppState, dto::RestApiResponse, error::AppError, jwt::Claims},
     domains::luna::dto::luna_dto::{
         CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-        CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto,
-        PaginationQuery, RecordDto, SearchDirectorDto, SearchGenreDto, SearchIdolDto,
-        SearchLabelDto, SearchRecordDto, SearchSeriesDto, SearchStudioDto, SeriesDto, StudioDto,
-        UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto, UpdateRecordDto,
-        UpdateSeriesDto, UpdateStudioDto,
+        CreateSeriesDto, CreateStudioDto, DirectorDto, EntityCountDto, GenreDto, IdolDto, LabelDto,
+        PaginatedResponse, PaginationQuery, RecordDto, SearchDirectorDto, SearchGenreDto,
+        SearchIdolDto, SearchLabelDto, SearchRecordDto, SearchSeriesDto, SearchStudioDto,
+        SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,
+        UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
     },
 };
 
@@ -953,4 +953,306 @@ pub async fn delete_record(
         .delete_record(&id)
         .await?;
     Ok(RestApiResponse::success_with_message(message, ()))
+}
+
+// Count handlers
+#[utoipa::path(
+    get,
+    path = "/cards/director-records-count",
+    responses((status = 200, description = "Get director record counts", body = [EntityCountDto])),
+    tag = "Statistics"
+)]
+pub async fn get_director_records_count(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let counts = state
+        .luna_service
+        .director_service()
+        .get_director_record_counts()
+        .await?;
+    Ok(RestApiResponse::success(counts))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/genre-records-count",
+    responses((status = 200, description = "Get genre record counts", body = [EntityCountDto])),
+    tag = "Statistics"
+)]
+pub async fn get_genre_records_count(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let counts = state
+        .luna_service
+        .genre_service()
+        .get_genre_record_counts()
+        .await?;
+    Ok(RestApiResponse::success(counts))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/label-records-count",
+    responses((status = 200, description = "Get label record counts", body = [EntityCountDto])),
+    tag = "Statistics"
+)]
+pub async fn get_label_records_count(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let counts = state
+        .luna_service
+        .label_service()
+        .get_label_record_counts()
+        .await?;
+    Ok(RestApiResponse::success(counts))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/studio-records-count",
+    responses((status = 200, description = "Get studio record counts", body = [EntityCountDto])),
+    tag = "Statistics"
+)]
+pub async fn get_studio_records_count(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let counts = state
+        .luna_service
+        .studio_service()
+        .get_studio_record_counts()
+        .await?;
+    Ok(RestApiResponse::success(counts))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/series-records-count",
+    responses((status = 200, description = "Get series record counts", body = [EntityCountDto])),
+    tag = "Statistics"
+)]
+pub async fn get_series_records_count(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let counts = state
+        .luna_service
+        .series_service()
+        .get_series_record_counts()
+        .await?;
+    Ok(RestApiResponse::success(counts))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/idol-records-count",
+    responses((status = 200, description = "Get idol record counts", body = [EntityCountDto])),
+    tag = "Statistics"
+)]
+pub async fn get_idol_records_count(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let counts = state
+        .luna_service
+        .idol_service()
+        .get_idol_record_counts()
+        .await?;
+    Ok(RestApiResponse::success(counts))
+}
+
+// Records by entity handlers
+#[utoipa::path(
+    get,
+    path = "/cards/director-records",
+    params(
+        ("director_id" = i64, Query, description = "Director ID"),
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Get records by director", body = PaginatedResponse<RecordDto>)),
+    tag = "Records"
+)]
+pub async fn get_records_by_director(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let director_id = params
+        .get("director_id")
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::ValidationError("director_id is required".into()))?;
+
+    let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
+    let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+
+    let pagination = PaginationQuery { limit, offset };
+
+    let records = state
+        .luna_service
+        .record_service()
+        .get_records_by_director(director_id, pagination)
+        .await?;
+    Ok(RestApiResponse::success(records))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/studio-records",
+    params(
+        ("studio_id" = i64, Query, description = "Studio ID"),
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Get records by studio", body = PaginatedResponse<RecordDto>)),
+    tag = "Records"
+)]
+pub async fn get_records_by_studio(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let studio_id = params
+        .get("studio_id")
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::ValidationError("studio_id is required".into()))?;
+
+    let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
+    let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+
+    let pagination = PaginationQuery { limit, offset };
+
+    let records = state
+        .luna_service
+        .record_service()
+        .get_records_by_studio(studio_id, pagination)
+        .await?;
+    Ok(RestApiResponse::success(records))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/label-records",
+    params(
+        ("label_id" = i64, Query, description = "Label ID"),
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Get records by label", body = PaginatedResponse<RecordDto>)),
+    tag = "Records"
+)]
+pub async fn get_records_by_label(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let label_id = params
+        .get("label_id")
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::ValidationError("label_id is required".into()))?;
+
+    let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
+    let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+
+    let pagination = PaginationQuery { limit, offset };
+
+    let records = state
+        .luna_service
+        .record_service()
+        .get_records_by_label(label_id, pagination)
+        .await?;
+    Ok(RestApiResponse::success(records))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/series-records",
+    params(
+        ("series_id" = i64, Query, description = "Series ID"),
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Get records by series", body = PaginatedResponse<RecordDto>)),
+    tag = "Records"
+)]
+pub async fn get_records_by_series(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let series_id = params
+        .get("series_id")
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::ValidationError("series_id is required".into()))?;
+
+    let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
+    let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+
+    let pagination = PaginationQuery { limit, offset };
+
+    let records = state
+        .luna_service
+        .record_service()
+        .get_records_by_series(series_id, pagination)
+        .await?;
+    Ok(RestApiResponse::success(records))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/genre-records",
+    params(
+        ("genre_id" = i64, Query, description = "Genre ID"),
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Get records by genre", body = PaginatedResponse<RecordDto>)),
+    tag = "Records"
+)]
+pub async fn get_records_by_genre(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let genre_id = params
+        .get("genre_id")
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::ValidationError("genre_id is required".into()))?;
+
+    let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
+    let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+
+    let pagination = PaginationQuery { limit, offset };
+
+    let records = state
+        .luna_service
+        .record_service()
+        .get_records_by_genre(genre_id, pagination)
+        .await?;
+    Ok(RestApiResponse::success(records))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/idol-records",
+    params(
+        ("idol_id" = i64, Query, description = "Idol ID"),
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Get records by idol", body = PaginatedResponse<RecordDto>)),
+    tag = "Records"
+)]
+pub async fn get_records_by_idol(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let idol_id = params
+        .get("idol_id")
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::ValidationError("idol_id is required".into()))?;
+
+    let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
+    let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+
+    let pagination = PaginationQuery { limit, offset };
+
+    let records = state
+        .luna_service
+        .record_service()
+        .get_records_by_idol(idol_id, pagination)
+        .await?;
+    Ok(RestApiResponse::success(records))
 }

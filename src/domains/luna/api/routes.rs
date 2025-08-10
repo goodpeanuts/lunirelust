@@ -21,18 +21,32 @@ use super::handlers::{
     __path_delete_series,
     __path_delete_studio,
     __path_get_director_by_id,
+    // Auto-generated paths for count handlers
+    __path_get_director_records_count,
     __path_get_directors,
     __path_get_genre_by_id,
+    __path_get_genre_records_count,
     __path_get_genres,
     __path_get_idol_by_id,
+    __path_get_idol_records_count,
     __path_get_idols,
     __path_get_label_by_id,
+    __path_get_label_records_count,
     __path_get_labels,
     __path_get_record_by_id,
     __path_get_records,
+    // Auto-generated paths for records by entity handlers
+    __path_get_records_by_director,
+    __path_get_records_by_genre,
+    __path_get_records_by_idol,
+    __path_get_records_by_label,
+    __path_get_records_by_series,
+    __path_get_records_by_studio,
     __path_get_series,
     __path_get_series_by_id,
+    __path_get_series_records_count,
     __path_get_studio_by_id,
+    __path_get_studio_records_count,
     __path_get_studios,
     __path_patch_director,
     __path_patch_genre,
@@ -63,18 +77,32 @@ use super::handlers::{
     delete_series,
     delete_studio,
     get_director_by_id,
+    // Count handlers
+    get_director_records_count,
     get_directors,
     get_genre_by_id,
+    get_genre_records_count,
     get_genres,
     get_idol_by_id,
+    get_idol_records_count,
     get_idols,
     get_label_by_id,
+    get_label_records_count,
     get_labels,
     get_record_by_id,
     get_records,
+    // Records by entity handlers
+    get_records_by_director,
+    get_records_by_genre,
+    get_records_by_idol,
+    get_records_by_label,
+    get_records_by_series,
+    get_records_by_studio,
     get_series,
     get_series_by_id,
+    get_series_records_count,
     get_studio_by_id,
+    get_studio_records_count,
     get_studios,
     patch_director,
     patch_genre,
@@ -164,6 +192,20 @@ use utoipa::{
         update_record,
         patch_record,
         delete_record,
+        // Count endpoints
+        get_director_records_count,
+        get_genre_records_count,
+        get_label_records_count,
+        get_studio_records_count,
+        get_series_records_count,
+        get_idol_records_count,
+        // Records by entity endpoints
+        get_records_by_director,
+        get_records_by_studio,
+        get_records_by_label,
+        get_records_by_series,
+        get_records_by_genre,
+        get_records_by_idol,
     ),
     components(schemas(
         DirectorDto, CreateDirectorDto, UpdateDirectorDto,
@@ -181,7 +223,8 @@ use utoipa::{
         (name = "Studios", description = "Studio management endpoints"),
         (name = "Series", description = "Series management endpoints"),
         (name = "Idols", description = "Idol management endpoints"),
-        (name = "Records", description = "Record management endpoints")
+        (name = "Records", description = "Record management endpoints"),
+        (name = "Statistics", description = "Statistics and count endpoints")
     ),
     security(
         ("bearer_auth" = [])
@@ -261,4 +304,18 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/{id}", put(update_record))
         .route("/records/{id}", patch(patch_record))
         .route("/records/{id}", delete(delete_record))
+        // Records by entity endpoints
+        .route("/director/{id}/records", get(get_records_by_director))
+        .route("/studio/{id}/records", get(get_records_by_studio))
+        .route("/label/{id}/records", get(get_records_by_label))
+        .route("/series/{id}/records", get(get_records_by_series))
+        .route("/genre/{id}/records", get(get_records_by_genre))
+        .route("/idol/{id}/records", get(get_records_by_idol))
+        // Count routes
+        .route("/director-records-count", get(get_director_records_count))
+        .route("/genre-records-count", get(get_genre_records_count))
+        .route("/label-records-count", get(get_label_records_count))
+        .route("/studio-records-count", get(get_studio_records_count))
+        .route("/series-records-count", get(get_series_records_count))
+        .route("/idol-records-count", get(get_idol_records_count))
 }

@@ -8,15 +8,16 @@ use crate::domains::luna::{
     },
     dto::luna_dto::{
         CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-        CreateSeriesDto, CreateStudioDto, PaginatedResponse, PaginationQuery, SearchDirectorDto,
-        SearchGenreDto, SearchIdolDto, SearchLabelDto, SearchRecordDto, SearchSeriesDto,
-        SearchStudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,
-        UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
+        CreateSeriesDto, CreateStudioDto, EntityCountDto, PaginatedResponse, PaginationQuery,
+        SearchDirectorDto, SearchGenreDto, SearchIdolDto, SearchLabelDto, SearchRecordDto,
+        SearchSeriesDto, SearchStudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto,
+        UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
     },
 };
 use crate::entities::{
-    director, genre, idol, label, record, series, studio, DirectorEntity, GenreEntity, IdolEntity,
-    LabelEntity, RecordEntity, SeriesEntity, StudioEntity,
+    director, genre, idol, idol_participation, label, links, record, record_genre, series, studio,
+    DirectorEntity, GenreEntity, IdolEntity, IdolParticipationEntity, LabelEntity, LinksEntity,
+    RecordEntity, RecordGenreEntity, SeriesEntity, StudioEntity,
 };
 use async_trait::async_trait;
 use sea_orm::{
@@ -162,6 +163,31 @@ impl DirectorRepository for DirectorRepo {
         let result = DirectorEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
     }
+
+    async fn get_director_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr> {
+        let directors = DirectorEntity::find().all(db).await?;
+        let mut result = Vec::new();
+
+        for director in directors {
+            let count = RecordEntity::find()
+                .filter(record::Column::DirectorId.eq(director.id))
+                .count(db)
+                .await? as i64;
+
+            result.push(EntityCountDto {
+                id: director.id,
+                name: director.name,
+                count,
+            });
+        }
+
+        // Sort by count descending
+        result.sort_by(|a, b| b.count.cmp(&a.count));
+        Ok(result)
+    }
 }
 
 pub struct GenreRepo;
@@ -293,6 +319,31 @@ impl GenreRepository for GenreRepo {
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr> {
         let result = GenreEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
+    }
+
+    async fn get_genre_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr> {
+        let genres = GenreEntity::find().all(db).await?;
+        let mut result = Vec::new();
+
+        for genre in genres {
+            let count = RecordGenreEntity::find()
+                .filter(record_genre::Column::GenreId.eq(genre.id))
+                .count(db)
+                .await? as i64;
+
+            result.push(EntityCountDto {
+                id: genre.id,
+                name: genre.name,
+                count,
+            });
+        }
+
+        // Sort by count descending
+        result.sort_by(|a, b| b.count.cmp(&a.count));
+        Ok(result)
     }
 }
 
@@ -426,6 +477,31 @@ impl LabelRepository for LabelRepo {
         let result = LabelEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
     }
+
+    async fn get_label_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr> {
+        let labels = LabelEntity::find().all(db).await?;
+        let mut result = Vec::new();
+
+        for label in labels {
+            let count = RecordEntity::find()
+                .filter(record::Column::LabelId.eq(label.id))
+                .count(db)
+                .await? as i64;
+
+            result.push(EntityCountDto {
+                id: label.id,
+                name: label.name,
+                count,
+            });
+        }
+
+        // Sort by count descending
+        result.sort_by(|a, b| b.count.cmp(&a.count));
+        Ok(result)
+    }
 }
 
 // Studio Repository Implementation
@@ -503,6 +579,31 @@ impl StudioRepository for StudioRepo {
         let result = StudioEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
     }
+
+    async fn get_studio_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr> {
+        let studios = StudioEntity::find().all(db).await?;
+        let mut result = Vec::new();
+
+        for studio in studios {
+            let count = RecordEntity::find()
+                .filter(record::Column::StudioId.eq(studio.id))
+                .count(db)
+                .await? as i64;
+
+            result.push(EntityCountDto {
+                id: studio.id,
+                name: studio.name,
+                count,
+            });
+        }
+
+        // Sort by count descending
+        result.sort_by(|a, b| b.count.cmp(&a.count));
+        Ok(result)
+    }
 }
 
 // Series Repository Implementation
@@ -579,6 +680,31 @@ impl SeriesRepository for SeriesRepo {
         let result = SeriesEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
     }
+
+    async fn get_series_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr> {
+        let series_list = SeriesEntity::find().all(db).await?;
+        let mut result = Vec::new();
+
+        for series in series_list {
+            let count = RecordEntity::find()
+                .filter(record::Column::SeriesId.eq(series.id))
+                .count(db)
+                .await? as i64;
+
+            result.push(EntityCountDto {
+                id: series.id,
+                name: series.name,
+                count,
+            });
+        }
+
+        // Sort by count descending
+        result.sort_by(|a, b| b.count.cmp(&a.count));
+        Ok(result)
+    }
 }
 
 // Idol Repository Implementation
@@ -651,60 +777,239 @@ impl IdolRepository for IdolRepo {
         let result = IdolEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
     }
+
+    async fn get_idol_record_counts(
+        &self,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<EntityCountDto>, DbErr> {
+        let idols = IdolEntity::find().all(db).await?;
+        let mut result = Vec::new();
+
+        for idol in idols {
+            let count = IdolParticipationEntity::find()
+                .filter(idol_participation::Column::IdolId.eq(idol.id))
+                .count(db)
+                .await? as i64;
+
+            result.push(EntityCountDto {
+                id: idol.id,
+                name: idol.name,
+                count,
+            });
+        }
+
+        // Sort by count descending
+        result.sort_by(|a, b| b.count.cmp(&a.count));
+        Ok(result)
+    }
 }
 
-// Record Repository Implementation (simplified - without complex relations for now)
+// Record Repository Implementation
 pub struct RecordRepo;
+
+impl RecordRepo {
+    /// Helper function to load a complete record with all related data
+    async fn load_record_with_relations(
+        &self,
+        db: &DatabaseConnection,
+        record_model: record::Model,
+    ) -> Result<Record, DbErr> {
+        // Load basic relations
+        let director = DirectorEntity::find_by_id(record_model.director_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Director not found".to_owned()))?;
+
+        let studio = StudioEntity::find_by_id(record_model.studio_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Studio not found".to_owned()))?;
+
+        let label = LabelEntity::find_by_id(record_model.label_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Label not found".to_owned()))?;
+
+        let series = SeriesEntity::find_by_id(record_model.series_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Series not found".to_owned()))?;
+
+        // Load genres through record_genre
+        let record_genres = RecordGenreEntity::find()
+            .filter(record_genre::Column::RecordId.eq(&record_model.id))
+            .find_also_related(GenreEntity)
+            .all(db)
+            .await?;
+
+        let genres = record_genres
+            .into_iter()
+            .filter_map(|(rg, genre_opt)| {
+                genre_opt.map(|genre| crate::domains::luna::domain::model::RecordGenre {
+                    genre: crate::domains::luna::domain::model::Genre::from(genre),
+                    manual: rg.manual,
+                })
+            })
+            .collect();
+
+        // Load idols through idol_participation
+        let idol_participations = IdolParticipationEntity::find()
+            .filter(idol_participation::Column::RecordId.eq(&record_model.id))
+            .find_also_related(IdolEntity)
+            .all(db)
+            .await?;
+
+        let idols = idol_participations
+            .into_iter()
+            .filter_map(|(ip, idol_opt)| {
+                idol_opt.map(
+                    |idol| crate::domains::luna::domain::model::IdolParticipation {
+                        idol: crate::domains::luna::domain::model::Idol::from(idol),
+                        manual: ip.manual,
+                    },
+                )
+            })
+            .collect();
+
+        // Load links
+        let links_models = LinksEntity::find()
+            .filter(links::Column::RecordId.eq(&record_model.id))
+            .all(db)
+            .await?;
+
+        let links = links_models
+            .into_iter()
+            .map(crate::domains::luna::domain::model::Link::from)
+            .collect();
+
+        Ok(Record {
+            id: record_model.id,
+            title: record_model.title,
+            date: record_model.date,
+            duration: record_model.duration,
+            director: Director::from(director),
+            studio: Studio::from(studio),
+            label: Label::from(label),
+            series: Series::from(series),
+            genres,
+            idols,
+            has_links: record_model.has_links,
+            links,
+            permission: record_model.permission,
+            local_img_count: record_model.local_img_count,
+            create_time: record_model.create_time,
+            update_time: record_model.update_time,
+            creator: record_model.creator,
+            modified_by: record_model.modified_by,
+        })
+    }
+
+    /// Helper function to load a complete record with all related data from a transaction
+    async fn load_record_with_relations_from_txn(
+        &self,
+        txn: &DatabaseTransaction,
+        record_model: record::Model,
+    ) -> Result<Record, DbErr> {
+        // Load basic relations
+        let director = DirectorEntity::find_by_id(record_model.director_id)
+            .one(txn)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Director not found".to_owned()))?;
+
+        let studio = StudioEntity::find_by_id(record_model.studio_id)
+            .one(txn)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Studio not found".to_owned()))?;
+
+        let label = LabelEntity::find_by_id(record_model.label_id)
+            .one(txn)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Label not found".to_owned()))?;
+
+        let series = SeriesEntity::find_by_id(record_model.series_id)
+            .one(txn)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("Series not found".to_owned()))?;
+
+        // Load genres through record_genre
+        let record_genres = RecordGenreEntity::find()
+            .filter(record_genre::Column::RecordId.eq(&record_model.id))
+            .find_also_related(GenreEntity)
+            .all(txn)
+            .await?;
+
+        let genres = record_genres
+            .into_iter()
+            .filter_map(|(rg, genre_opt)| {
+                genre_opt.map(|genre| crate::domains::luna::domain::model::RecordGenre {
+                    genre: crate::domains::luna::domain::model::Genre::from(genre),
+                    manual: rg.manual,
+                })
+            })
+            .collect();
+
+        // Load idols through idol_participation
+        let idol_participations = IdolParticipationEntity::find()
+            .filter(idol_participation::Column::RecordId.eq(&record_model.id))
+            .find_also_related(IdolEntity)
+            .all(txn)
+            .await?;
+
+        let idols = idol_participations
+            .into_iter()
+            .filter_map(|(ip, idol_opt)| {
+                idol_opt.map(
+                    |idol| crate::domains::luna::domain::model::IdolParticipation {
+                        idol: crate::domains::luna::domain::model::Idol::from(idol),
+                        manual: ip.manual,
+                    },
+                )
+            })
+            .collect();
+
+        // Load links
+        let links_models = LinksEntity::find()
+            .filter(links::Column::RecordId.eq(&record_model.id))
+            .all(txn)
+            .await?;
+
+        let links = links_models
+            .into_iter()
+            .map(crate::domains::luna::domain::model::Link::from)
+            .collect();
+
+        Ok(Record {
+            id: record_model.id,
+            title: record_model.title,
+            date: record_model.date,
+            duration: record_model.duration,
+            director: Director::from(director),
+            studio: Studio::from(studio),
+            label: Label::from(label),
+            series: Series::from(series),
+            genres,
+            idols,
+            has_links: record_model.has_links,
+            links,
+            permission: record_model.permission,
+            local_img_count: record_model.local_img_count,
+            create_time: record_model.create_time,
+            update_time: record_model.update_time,
+            creator: record_model.creator,
+            modified_by: record_model.modified_by,
+        })
+    }
+}
 
 #[async_trait]
 impl RecordRepository for RecordRepo {
     async fn find_all(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
-        // For now, this will return simplified records without the complex relations
-        // TODO: Implement proper record loading with all relations
         let record_models = RecordEntity::find().all(db).await?;
-
-        // Convert to domain models (this is a simplified version)
         let mut records = Vec::new();
-        for record_model in record_models {
-            // Load related entities
-            let director = DirectorEntity::find_by_id(record_model.director_id)
-                .one(db)
-                .await?;
-            let studio = StudioEntity::find_by_id(record_model.studio_id)
-                .one(db)
-                .await?;
-            let label = LabelEntity::find_by_id(record_model.label_id)
-                .one(db)
-                .await?;
-            let series = SeriesEntity::find_by_id(record_model.series_id)
-                .one(db)
-                .await?;
 
-            if let (Some(director), Some(studio), Some(label), Some(series)) =
-                (director, studio, label, series)
-            {
-                let record = Record {
-                    id: record_model.id,
-                    title: record_model.title,
-                    date: record_model.date,
-                    duration: record_model.duration,
-                    director: Director::from(director),
-                    studio: Studio::from(studio),
-                    label: Label::from(label),
-                    series: Series::from(series),
-                    genres: vec![], // TODO: Load genres
-                    idols: vec![],  // TODO: Load idols
-                    has_links: record_model.has_links,
-                    links: vec![], // TODO: Load links
-                    permission: record_model.permission,
-                    local_img_count: record_model.local_img_count,
-                    create_time: record_model.create_time,
-                    update_time: record_model.update_time,
-                    creator: record_model.creator,
-                    modified_by: record_model.modified_by,
-                };
-                records.push(record);
-            }
+        for record_model in record_models {
+            let record = self.load_record_with_relations(db, record_model).await?;
+            records.push(record);
         }
 
         Ok(records)
@@ -715,51 +1020,12 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         id: String,
     ) -> Result<Option<Record>, DbErr> {
-        let record_model = RecordEntity::find_by_id(id).one(db).await?;
-
-        if let Some(record_model) = record_model {
-            // Load related entities
-            let director = DirectorEntity::find_by_id(record_model.director_id)
-                .one(db)
-                .await?;
-            let studio = StudioEntity::find_by_id(record_model.studio_id)
-                .one(db)
-                .await?;
-            let label = LabelEntity::find_by_id(record_model.label_id)
-                .one(db)
-                .await?;
-            let series = SeriesEntity::find_by_id(record_model.series_id)
-                .one(db)
-                .await?;
-
-            if let (Some(director), Some(studio), Some(label), Some(series)) =
-                (director, studio, label, series)
-            {
-                let record = Record {
-                    id: record_model.id,
-                    title: record_model.title,
-                    date: record_model.date,
-                    duration: record_model.duration,
-                    director: Director::from(director),
-                    studio: Studio::from(studio),
-                    label: Label::from(label),
-                    series: Series::from(series),
-                    genres: vec![], // TODO: Load genres
-                    idols: vec![],  // TODO: Load idols
-                    has_links: record_model.has_links,
-                    links: vec![], // TODO: Load links
-                    permission: record_model.permission,
-                    local_img_count: record_model.local_img_count,
-                    create_time: record_model.create_time,
-                    update_time: record_model.update_time,
-                    creator: record_model.creator,
-                    modified_by: record_model.modified_by,
-                };
-                return Ok(Some(record));
-            }
+        if let Some(record_model) = RecordEntity::find_by_id(id).one(db).await? {
+            let record = self.load_record_with_relations(db, record_model).await?;
+            Ok(Some(record))
+        } else {
+            Ok(None)
         }
-
-        Ok(None)
     }
 
     async fn find_list(
@@ -770,20 +1036,30 @@ impl RecordRepository for RecordRepo {
         let mut query = RecordEntity::find();
 
         if let Some(id) = search_dto.id {
-            query = query.filter(record::Column::Id.eq(id));
+            query = query.filter(record::Column::Id.like(format!("%{id}%")));
         }
         if let Some(title) = search_dto.title {
-            query = query.filter(record::Column::Title.contains(&title));
+            query = query.filter(record::Column::Title.like(format!("%{title}%")));
+        }
+        if let Some(director_id) = search_dto.director_id {
+            query = query.filter(record::Column::DirectorId.eq(director_id));
+        }
+        if let Some(studio_id) = search_dto.studio_id {
+            query = query.filter(record::Column::StudioId.eq(studio_id));
+        }
+        if let Some(label_id) = search_dto.label_id {
+            query = query.filter(record::Column::LabelId.eq(label_id));
+        }
+        if let Some(series_id) = search_dto.series_id {
+            query = query.filter(record::Column::SeriesId.eq(series_id));
         }
 
         let record_models = query.all(db).await?;
-
-        // Simplified version - load each record
         let mut records = Vec::new();
+
         for record_model in record_models {
-            if let Some(record) = self.find_by_id(db, record_model.id).await? {
-                records.push(record);
-            }
+            let record = self.load_record_with_relations(db, record_model).await?;
+            records.push(record);
         }
 
         Ok(records)
@@ -795,10 +1071,9 @@ impl RecordRepository for RecordRepo {
         record: CreateRecordDto,
     ) -> Result<String, DbErr> {
         use chrono::Utc;
-
         let now = Utc::now().date_naive();
 
-        let active_record = record::ActiveModel {
+        let record_active_model = record::ActiveModel {
             id: Set(record.id.clone()),
             title: Set(record.title),
             date: Set(record.date),
@@ -816,8 +1091,8 @@ impl RecordRepository for RecordRepo {
             modified_by: Set(record.modified_by),
         };
 
-        let result = active_record.insert(txn).await?;
-        Ok(result.id)
+        let inserted = record_active_model.insert(txn).await?;
+        Ok(inserted.id)
     }
 
     async fn update(
@@ -826,65 +1101,32 @@ impl RecordRepository for RecordRepo {
         id: String,
         record: UpdateRecordDto,
     ) -> Result<Option<Record>, DbErr> {
-        match RecordEntity::find_by_id(&id).one(txn).await? {
-            Some(existing) => {
-                use chrono::Utc;
+        if let Some(existing) = RecordEntity::find_by_id(&id).one(txn).await? {
+            use chrono::Utc;
+            let now = Utc::now().date_naive();
 
-                let mut active_record: record::ActiveModel = existing.into();
+            let mut active_record: record::ActiveModel = existing.into();
+            active_record.title = Set(record.title);
+            active_record.date = Set(record.date);
+            active_record.duration = Set(record.duration);
+            active_record.director_id = Set(record.director_id);
+            active_record.studio_id = Set(record.studio_id);
+            active_record.label_id = Set(record.label_id);
+            active_record.series_id = Set(record.series_id);
+            active_record.has_links = Set(record.has_links);
+            active_record.permission = Set(record.permission);
+            active_record.local_img_count = Set(record.local_img_count);
+            active_record.update_time = Set(now);
+            active_record.modified_by = Set(record.modified_by);
 
-                active_record.title = Set(record.title);
-                active_record.date = Set(record.date);
-                active_record.duration = Set(record.duration);
-                active_record.director_id = Set(record.director_id);
-                active_record.studio_id = Set(record.studio_id);
-                active_record.label_id = Set(record.label_id);
-                active_record.series_id = Set(record.series_id);
-                active_record.has_links = Set(record.has_links);
-                active_record.permission = Set(record.permission);
-                active_record.local_img_count = Set(record.local_img_count);
-                active_record.update_time = Set(Utc::now().date_naive());
-                active_record.modified_by = Set(record.modified_by);
-
-                let updated = active_record.update(txn).await?;
-
-                // Return the updated record by finding it again using the connection
-                // Note: We can't call find_by_id with the transaction, so we'll construct the record manually
-                let director = DirectorEntity::find_by_id(updated.director_id)
-                    .one(txn)
-                    .await?;
-                let studio = StudioEntity::find_by_id(updated.studio_id).one(txn).await?;
-                let label = LabelEntity::find_by_id(updated.label_id).one(txn).await?;
-                let series = SeriesEntity::find_by_id(updated.series_id).one(txn).await?;
-
-                if let (Some(director), Some(studio), Some(label), Some(series)) =
-                    (director, studio, label, series)
-                {
-                    let record = Record {
-                        id: updated.id,
-                        title: updated.title,
-                        date: updated.date,
-                        duration: updated.duration,
-                        director: Director::from(director),
-                        studio: Studio::from(studio),
-                        label: Label::from(label),
-                        series: Series::from(series),
-                        genres: vec![], // TODO: Load genres
-                        idols: vec![],  // TODO: Load idols
-                        has_links: updated.has_links,
-                        links: vec![], // TODO: Load links
-                        permission: updated.permission,
-                        local_img_count: updated.local_img_count,
-                        create_time: updated.create_time,
-                        update_time: updated.update_time,
-                        creator: updated.creator,
-                        modified_by: updated.modified_by,
-                    };
-                    Ok(Some(record))
-                } else {
-                    Ok(None)
-                }
-            }
-            None => Ok(None),
+            let updated = active_record.update(txn).await?;
+            // Convert transaction to connection for loading relations
+            let record = self
+                .load_record_with_relations_from_txn(txn, updated)
+                .await?;
+            Ok(Some(record))
+        } else {
+            Ok(None)
         }
     }
 

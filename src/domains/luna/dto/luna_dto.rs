@@ -32,6 +32,14 @@ pub struct SearchQuery {
     pub pagination: PaginationQuery,
 }
 
+// Count DTOs for statistics
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EntityCountDto {
+    pub id: i64,
+    pub name: String,
+    pub count: i64,
+}
+
 // Director DTOs
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DirectorDto {
