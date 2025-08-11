@@ -122,7 +122,7 @@ use super::handlers::{
 
 use crate::{
     common::app_state::AppState,
-    domains::luna::dto::luna_dto::{
+    domains::luna::dto::{
         CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
         CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto, RecordDto,
         SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,

@@ -5,6 +5,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub use Entity as LabelEntity;
+pub use Model as LabelModel;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "label")]
 pub struct Model {

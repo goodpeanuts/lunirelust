@@ -5,6 +5,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub use Entity as SeriesEntity;
+pub use Model as SeriesModel;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "series")]
 pub struct Model {

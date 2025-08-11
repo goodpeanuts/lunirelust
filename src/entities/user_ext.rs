@@ -5,6 +5,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub use Entity as UserExtEntity;
+pub use Model as UserExtModel;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "user_table")]
 pub struct Model {

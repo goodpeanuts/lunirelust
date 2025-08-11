@@ -3,6 +3,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub use Entity as UploadedFilesEntity;
+pub use Model as UploadedFilesModel;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "uploaded_files")]
 pub struct Model {
