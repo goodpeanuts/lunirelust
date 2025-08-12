@@ -13,8 +13,13 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::insert()
                     .into_table(Director::Table)
-                    .columns([Director::Id, Director::Name, Director::Link])
-                    .values_panic([1.into(), "Unknown Director".into(), "".into()])
+                    .columns([
+                        Director::Id,
+                        Director::Name,
+                        Director::Link,
+                        Director::Manual,
+                    ])
+                    .values_panic([0.into(), "Unknown Director".into(), "".into(), false.into()])
                     .to_owned(),
             )
             .await?;
@@ -24,8 +29,8 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::insert()
                     .into_table(Studio::Table)
-                    .columns([Studio::Id, Studio::Name, Studio::Link])
-                    .values_panic([1.into(), "Unknown Studio".into(), "".into()])
+                    .columns([Studio::Id, Studio::Name, Studio::Link, Studio::Manual])
+                    .values_panic([0.into(), "Unknown Studio".into(), "".into(), false.into()])
                     .to_owned(),
             )
             .await?;
@@ -35,8 +40,8 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::insert()
                     .into_table(Label::Table)
-                    .columns([Label::Id, Label::Name, Label::Link])
-                    .values_panic([1.into(), "Unknown Label".into(), "".into()])
+                    .columns([Label::Id, Label::Name, Label::Link, Label::Manual])
+                    .values_panic([0.into(), "Unknown Label".into(), "".into(), false.into()])
                     .to_owned(),
             )
             .await?;
@@ -46,8 +51,30 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::insert()
                     .into_table(Series::Table)
-                    .columns([Series::Id, Series::Name, Series::Link])
-                    .values_panic([1.into(), "Unknown Series".into(), "".into()])
+                    .columns([Series::Id, Series::Name, Series::Link, Series::Manual])
+                    .values_panic([0.into(), "Unknown Series".into(), "".into(), false.into()])
+                    .to_owned(),
+            )
+            .await?;
+
+        // Default Genre
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(Genre::Table)
+                    .columns([Genre::Id, Genre::Name, Genre::Link, Genre::Manual])
+                    .values_panic([0.into(), "Unknown Genre".into(), "".into(), false.into()])
+                    .to_owned(),
+            )
+            .await?;
+
+        // Default Idol
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(Idol::Table)
+                    .columns([Idol::Id, Idol::Name, Idol::Link, Idol::Manual])
+                    .values_panic([0.into(), "Unknown Idol".into(), "".into(), false.into()])
                     .to_owned(),
             )
             .await?;
@@ -132,7 +159,7 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::delete()
                     .from_table(Director::Table)
-                    .and_where(Expr::col(Director::Id).eq(1))
+                    .and_where(Expr::col(Director::Id).eq(0))
                     .to_owned(),
             )
             .await?;
@@ -141,7 +168,7 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::delete()
                     .from_table(Studio::Table)
-                    .and_where(Expr::col(Studio::Id).eq(1))
+                    .and_where(Expr::col(Studio::Id).eq(0))
                     .to_owned(),
             )
             .await?;
@@ -150,7 +177,7 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::delete()
                     .from_table(Label::Table)
-                    .and_where(Expr::col(Label::Id).eq(1))
+                    .and_where(Expr::col(Label::Id).eq(0))
                     .to_owned(),
             )
             .await?;
@@ -159,7 +186,25 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::delete()
                     .from_table(Series::Table)
-                    .and_where(Expr::col(Series::Id).eq(1))
+                    .and_where(Expr::col(Series::Id).eq(0))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .exec_stmt(
+                Query::delete()
+                    .from_table(Genre::Table)
+                    .and_where(Expr::col(Genre::Id).eq(0))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .exec_stmt(
+                Query::delete()
+                    .from_table(Idol::Table)
+                    .and_where(Expr::col(Idol::Id).eq(0))
                     .to_owned(),
             )
             .await?;
@@ -174,6 +219,7 @@ enum Director {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -182,6 +228,7 @@ enum Studio {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -190,6 +237,7 @@ enum Label {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -198,6 +246,25 @@ enum Series {
     Id,
     Name,
     Link,
+    Manual,
+}
+
+#[derive(DeriveIden)]
+enum Genre {
+    Table,
+    Id,
+    Name,
+    Link,
+    Manual,
+}
+
+#[derive(DeriveIden)]
+enum Idol {
+    Table,
+    Id,
+    Name,
+    Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]

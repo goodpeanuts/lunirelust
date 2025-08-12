@@ -10,6 +10,7 @@ pub struct StudioDto {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<Studio> for StudioDto {
@@ -18,6 +19,7 @@ impl From<Studio> for StudioDto {
             id: studio.id,
             name: studio.name,
             link: studio.link,
+            manual: studio.manual,
         }
     }
 }
@@ -33,14 +35,15 @@ pub struct SearchStudioDto {
 pub struct CreateStudioDto {
     #[validate(length(min = 1, message = "Name cannot be empty"))]
     pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateStudioDto {
+    pub id: i64,
     #[validate(length(min = 1, message = "Name cannot be empty"))]
-    pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub name: Option<String>,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }

@@ -13,6 +13,8 @@ use super::{
     link::{CreateLinkDto, LinkDto},
     series::SeriesDto,
     studio::StudioDto,
+    CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateSeriesDto,
+    CreateStudioDto, UpdateGenreDto,
 };
 
 // Record DTOs
@@ -94,12 +96,12 @@ pub struct CreateRecordDto {
     pub title: String,
     pub date: Date,
     pub duration: i32,
-    pub director_id: i64,
-    pub studio_id: i64,
-    pub label_id: i64,
-    pub series_id: i64,
-    pub genres: Vec<CreateRecordGenreDto>,
-    pub idols: Vec<CreateIdolParticipationDto>,
+    pub director: Option<CreateDirectorDto>,
+    pub studio: Option<CreateStudioDto>,
+    pub label: Option<CreateLabelDto>,
+    pub series: Option<CreateSeriesDto>,
+    pub genres: Vec<CreateGenreDto>,
+    pub idols: Vec<CreateIdolDto>,
     pub has_links: bool,
     pub links: Vec<CreateLinkDto>,
     pub permission: i32,
@@ -118,17 +120,11 @@ pub struct UpdateRecordDto {
     pub studio_id: i64,
     pub label_id: i64,
     pub series_id: i64,
-    pub genres: Vec<CreateRecordGenreDto>,
+    pub genres: Vec<UpdateGenreDto>,
     pub idols: Vec<CreateIdolParticipationDto>,
     pub has_links: bool,
     pub links: Vec<CreateLinkDto>,
     pub permission: i32,
     pub local_img_count: i32,
     pub modified_by: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
-pub struct CreateRecordGenreDto {
-    pub genre_id: i64,
-    pub manual: bool,
 }

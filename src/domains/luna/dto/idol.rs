@@ -10,6 +10,7 @@ pub struct IdolDto {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<Idol> for IdolDto {
@@ -18,6 +19,7 @@ impl From<Idol> for IdolDto {
             id: idol.id,
             name: idol.name,
             link: idol.link,
+            manual: idol.manual,
         }
     }
 }
@@ -38,20 +40,21 @@ pub struct CreateIdolDto {
         message = "Name must be between 1 and 255 characters"
     ))]
     pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateIdolDto {
+    pub id: i64,
     #[validate(length(
         min = 1,
         max = 255,
         message = "Name must be between 1 and 255 characters"
     ))]
-    pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub name: Option<String>,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

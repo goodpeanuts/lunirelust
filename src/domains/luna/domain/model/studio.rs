@@ -6,6 +6,7 @@ pub struct Studio {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<studio::Model> for Studio {
@@ -14,6 +15,7 @@ impl From<studio::Model> for Studio {
             id: studio.id,
             name: studio.name,
             link: studio.link,
+            manual: studio.manual,
         }
     }
 }

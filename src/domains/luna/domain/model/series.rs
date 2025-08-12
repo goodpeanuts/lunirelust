@@ -6,6 +6,7 @@ pub struct Series {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<series::Model> for Series {
@@ -14,6 +15,7 @@ impl From<series::Model> for Series {
             id: series.id,
             name: series.name,
             link: series.link,
+            manual: series.manual,
         }
     }
 }

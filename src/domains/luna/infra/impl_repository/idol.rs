@@ -49,9 +49,28 @@ impl IdolRepository for IdolRepo {
     }
 
     async fn create(&self, txn: &DatabaseTransaction, idol: CreateIdolDto) -> Result<i64, DbErr> {
+        let name = idol.name;
+        let link = idol.link.unwrap_or_default();
+        let manual = idol.manual.unwrap_or(false);
+
+        // Check if an idol with identical fields already exists
+        let existing_idol = IdolEntity::find()
+            .filter(idol::Column::Name.eq(&name))
+            .filter(idol::Column::Link.eq(&link))
+            .filter(idol::Column::Manual.eq(manual))
+            .one(txn)
+            .await?;
+
+        if let Some(existing) = existing_idol {
+            // Return existing idol's ID
+            return Ok(existing.id);
+        }
+
+        // Create new idol if none exists
         let active_idol = idol::ActiveModel {
-            name: Set(idol.name),
-            link: Set(idol.link),
+            name: Set(name),
+            link: Set(link),
+            manual: Set(manual),
             ..Default::default()
         };
 
@@ -67,9 +86,38 @@ impl IdolRepository for IdolRepo {
     ) -> Result<Option<Idol>, DbErr> {
         match IdolEntity::find_by_id(id).one(txn).await? {
             Some(existing) => {
+                // Calculate the new values after update
+                let new_name = idol.name.clone().unwrap_or(existing.name.clone());
+                let new_link = idol.link.clone().unwrap_or(existing.link.clone());
+                let new_manual = idol.manual.unwrap_or(existing.manual);
+
+                // Check if an idol with the updated fields already exists (excluding current record)
+                let matching_idol = IdolEntity::find()
+                    .filter(idol::Column::Name.eq(&new_name))
+                    .filter(idol::Column::Link.eq(&new_link))
+                    .filter(idol::Column::Manual.eq(new_manual))
+                    .filter(idol::Column::Id.ne(id))
+                    .one(txn)
+                    .await?;
+
+                if let Some(matching) = matching_idol {
+                    // Delete the current idol and return the matching one
+                    IdolEntity::delete_by_id(id).exec(txn).await?;
+                    return Ok(Some(Idol::from(matching)));
+                }
+
+                // No matching idol found, proceed with update
                 let mut active_idol: idol::ActiveModel = existing.into();
-                active_idol.name = Set(idol.name);
-                active_idol.link = Set(idol.link);
+
+                if let Some(name) = idol.name {
+                    active_idol.name = Set(name);
+                }
+                if let Some(link) = idol.link {
+                    active_idol.link = Set(link);
+                }
+                if let Some(manual) = idol.manual {
+                    active_idol.manual = Set(manual);
+                }
 
                 let updated = active_idol.update(txn).await?;
                 Ok(Some(Idol::from(updated)))

@@ -10,6 +10,7 @@ pub struct DirectorDto {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<Director> for DirectorDto {
@@ -18,6 +19,7 @@ impl From<Director> for DirectorDto {
             id: director.id,
             name: director.name,
             link: director.link,
+            manual: director.manual,
         }
     }
 }
@@ -33,15 +35,16 @@ pub struct SearchDirectorDto {
 pub struct CreateDirectorDto {
     #[validate(length(min = 1, message = "Name cannot be empty"))]
     pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
-// TODO: Update params should be adjusted
+/// Update by ID
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateDirectorDto {
+    pub id: i64,
     #[validate(length(min = 1, message = "Name cannot be empty"))]
-    pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub name: Option<String>,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }

@@ -6,6 +6,7 @@ pub struct Label {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<label::Model> for Label {
@@ -14,6 +15,7 @@ impl From<label::Model> for Label {
             id: label.id,
             name: label.name,
             link: label.link,
+            manual: label.manual,
         }
     }
 }

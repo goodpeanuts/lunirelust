@@ -15,6 +15,7 @@ pub struct Model {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

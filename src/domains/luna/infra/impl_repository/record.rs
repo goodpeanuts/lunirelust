@@ -5,12 +5,18 @@ use crate::entities::{
 };
 use crate::{
     domains::luna::{
-        domain::{Director, Label, Record, RecordRepository, Series, Studio},
+        domain::{
+            Director, DirectorRepository as _, GenreRepository as _, IdolRepository as _, Label,
+            LabelRepository as _, Record, RecordRepository, Series, SeriesRepository as _, Studio,
+            StudioRepository as _,
+        },
         dto::{CreateRecordDto, SearchRecordDto, UpdateRecordDto},
+        infra::{DirectorRepo, GenreRepo, IdolRepo, LabelRepo, SeriesRepo, StudioRepo},
     },
     entities::DirectorEntity,
 };
 use async_trait::async_trait;
+use sea_orm::prelude::Decimal;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
     EntityTrait as _, QueryFilter as _, Set,
@@ -281,15 +287,54 @@ impl RecordRepository for RecordRepo {
         use chrono::Utc;
         let now = Utc::now().date_naive();
 
+        // Check if record with this ID already exists
+        if let Some(_existing_record) = RecordEntity::find_by_id(&record.id).one(txn).await? {
+            // Record with this ID already exists, return the existing ID
+            return Ok(record.id);
+        }
+
+        // Handle director creation or use default
+        let director_id = if let Some(director_dto) = record.director {
+            let director_repo = DirectorRepo;
+            director_repo.create(txn, director_dto).await?
+        } else {
+            0 // Default unknown director
+        };
+
+        // Handle studio creation or use default
+        let studio_id = if let Some(studio_dto) = record.studio {
+            let studio_repo = StudioRepo;
+            studio_repo.create(txn, studio_dto).await?
+        } else {
+            0 // Default unknown studio
+        };
+
+        // Handle label creation or use default
+        let label_id = if let Some(label_dto) = record.label {
+            let label_repo = LabelRepo;
+            label_repo.create(txn, label_dto).await?
+        } else {
+            0 // Default unknown label
+        };
+
+        // Handle series creation or use default
+        let series_id = if let Some(series_dto) = record.series {
+            let series_repo = SeriesRepo;
+            series_repo.create(txn, series_dto).await?
+        } else {
+            0 // Default unknown series
+        };
+
+        // Create the main record
         let record_active_model = record::ActiveModel {
             id: Set(record.id.clone()),
             title: Set(record.title),
             date: Set(record.date),
             duration: Set(record.duration),
-            director_id: Set(record.director_id),
-            studio_id: Set(record.studio_id),
-            label_id: Set(record.label_id),
-            series_id: Set(record.series_id),
+            director_id: Set(director_id),
+            studio_id: Set(studio_id),
+            label_id: Set(label_id),
+            series_id: Set(series_id),
             has_links: Set(record.has_links),
             permission: Set(record.permission),
             local_img_count: Set(record.local_img_count),
@@ -300,6 +345,52 @@ impl RecordRepository for RecordRepo {
         };
 
         let inserted = record_active_model.insert(txn).await?;
+
+        // Handle genre associations
+        for genre_dto in record.genres {
+            let genre_repo = GenreRepo;
+            let genre_id = genre_repo.create(txn, genre_dto).await?;
+
+            let record_genre = record_genre::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                record_id: Set(record.id.clone()),
+                genre_id: Set(genre_id),
+                manual: Set(false), // Manually created association
+            };
+            record_genre.insert(txn).await?;
+        }
+
+        // Handle idol associations
+        for idol_dto in record.idols {
+            let idol_repo = IdolRepo;
+            let idol_id = idol_repo.create(txn, idol_dto).await?;
+
+            let idol_participation = idol_participation::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                idol_id: Set(idol_id),
+                record_id: Set(record.id.clone()),
+                manual: Set(false), // Manually created association
+            };
+            idol_participation.insert(txn).await?;
+        }
+
+        // Handle links
+        for link_dto in record.links {
+            let link_active_model = links::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                record_id: Set(record.id.clone()),
+                name: Set(link_dto.name),
+                size: Set(link_dto.size.unwrap_or(Decimal::new(-1, 0))),
+                date: Set(link_dto.date.unwrap_or_else(|| {
+                    chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
+                        .expect("Failed to create default date")
+                })),
+                link: Set(link_dto.link.unwrap_or_default()),
+                star: Set(link_dto.star.unwrap_or(false)),
+            };
+            link_active_model.insert(txn).await?;
+        }
+
         Ok(inserted.id)
     }
 

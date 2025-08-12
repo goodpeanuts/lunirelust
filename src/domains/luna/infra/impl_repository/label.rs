@@ -111,9 +111,28 @@ impl LabelRepository for LabelRepo {
     }
 
     async fn create(&self, txn: &DatabaseTransaction, label: CreateLabelDto) -> Result<i64, DbErr> {
+        let name = label.name;
+        let link = label.link.unwrap_or_default();
+        let manual = label.manual.unwrap_or(false);
+
+        // Check if a label with identical fields already exists
+        let existing_label = LabelEntity::find()
+            .filter(label::Column::Name.eq(&name))
+            .filter(label::Column::Link.eq(&link))
+            .filter(label::Column::Manual.eq(manual))
+            .one(txn)
+            .await?;
+
+        if let Some(existing) = existing_label {
+            // Return existing label's ID
+            return Ok(existing.id);
+        }
+
+        // Create new label if none exists
         let label_active_model = label::ActiveModel {
-            name: Set(label.name),
-            link: Set(label.link),
+            name: Set(name),
+            link: Set(link),
+            manual: Set(manual),
             ..Default::default()
         };
 
@@ -130,9 +149,38 @@ impl LabelRepository for LabelRepo {
         let existing_label = LabelEntity::find_by_id(id).one(txn).await?;
 
         if let Some(existing) = existing_label {
+            // Calculate the new values after update
+            let new_name = label.name.clone().unwrap_or(existing.name.clone());
+            let new_link = label.link.clone().unwrap_or(existing.link.clone());
+            let new_manual = label.manual.unwrap_or(existing.manual);
+
+            // Check if a label with the updated fields already exists (excluding current record)
+            let matching_label = LabelEntity::find()
+                .filter(label::Column::Name.eq(&new_name))
+                .filter(label::Column::Link.eq(&new_link))
+                .filter(label::Column::Manual.eq(new_manual))
+                .filter(label::Column::Id.ne(id))
+                .one(txn)
+                .await?;
+
+            if let Some(matching) = matching_label {
+                // Delete the current label and return the matching one
+                LabelEntity::delete_by_id(id).exec(txn).await?;
+                return Ok(Some(Label::from(matching)));
+            }
+
+            // No matching label found, proceed with update
             let mut label_active_model: label::ActiveModel = existing.into();
-            label_active_model.name = Set(label.name);
-            label_active_model.link = Set(label.link);
+
+            if let Some(name) = label.name {
+                label_active_model.name = Set(name);
+            }
+            if let Some(link) = label.link {
+                label_active_model.link = Set(link);
+            }
+            if let Some(manual) = label.manual {
+                label_active_model.manual = Set(manual);
+            }
 
             let updated_label = label_active_model.update(txn).await?;
             return Ok(Some(Label::from(updated_label)));

@@ -6,6 +6,7 @@ pub struct Director {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<director::Model> for Director {
@@ -14,6 +15,7 @@ impl From<director::Model> for Director {
             id: director.id,
             name: director.name,
             link: director.link,
+            manual: director.manual,
         }
     }
 }

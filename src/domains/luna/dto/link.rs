@@ -41,9 +41,9 @@ pub struct CreateLinkDto {
     ))]
     pub name: String,
     #[schema(value_type = String)]
-    pub size: Decimal,
-    pub date: Date,
+    pub size: Option<Decimal>,
+    pub date: Option<Date>,
     #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
-    pub star: bool,
+    pub link: Option<String>,
+    pub star: Option<bool>,
 }

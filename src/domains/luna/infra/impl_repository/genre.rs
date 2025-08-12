@@ -111,9 +111,28 @@ impl GenreRepository for GenreRepo {
     }
 
     async fn create(&self, txn: &DatabaseTransaction, genre: CreateGenreDto) -> Result<i64, DbErr> {
+        let name = genre.name;
+        let link = genre.link.unwrap_or_default();
+        let manual = genre.manual.unwrap_or(false);
+
+        // Check if a genre with identical fields already exists
+        let existing_genre = GenreEntity::find()
+            .filter(genre::Column::Name.eq(&name))
+            .filter(genre::Column::Link.eq(&link))
+            .filter(genre::Column::Manual.eq(manual))
+            .one(txn)
+            .await?;
+
+        if let Some(existing) = existing_genre {
+            // Return existing genre's ID
+            return Ok(existing.id);
+        }
+
+        // Create new genre if none exists
         let genre_active_model = genre::ActiveModel {
-            name: Set(genre.name),
-            link: Set(genre.link),
+            name: Set(name),
+            link: Set(link),
+            manual: Set(manual),
             ..Default::default()
         };
 
@@ -130,9 +149,40 @@ impl GenreRepository for GenreRepo {
         let existing_genre = GenreEntity::find_by_id(id).one(txn).await?;
 
         if let Some(existing) = existing_genre {
+            // Calculate the new values after update
+            let new_name = genre.name.clone().unwrap_or(existing.name.clone());
+            let new_link = genre.link.clone().unwrap_or(existing.link.clone());
+            let new_manual = genre.manual.unwrap_or(existing.manual);
+
+            // Check if a genre with the updated fields already exists (excluding current record)
+            let matching_genre = GenreEntity::find()
+                .filter(genre::Column::Name.eq(&new_name))
+                .filter(genre::Column::Link.eq(&new_link))
+                .filter(genre::Column::Manual.eq(new_manual))
+                .filter(genre::Column::Id.ne(id))
+                .one(txn)
+                .await?;
+
+            if let Some(matching) = matching_genre {
+                // Delete the current genre and return the matching one
+                GenreEntity::delete_by_id(id).exec(txn).await?;
+                return Ok(Some(Genre::from(matching)));
+            }
+
+            // No matching genre found, proceed with update
             let mut genre_active_model: genre::ActiveModel = existing.into();
-            genre_active_model.name = Set(genre.name);
-            genre_active_model.link = Set(genre.link);
+
+            if let Some(name) = genre.name {
+                genre_active_model.name = Set(name);
+            }
+
+            if let Some(link) = genre.link {
+                genre_active_model.link = Set(link);
+            }
+
+            if let Some(manual) = genre.manual {
+                genre_active_model.manual = Set(manual);
+            }
 
             let updated_genre = genre_active_model.update(txn).await?;
             return Ok(Some(Genre::from(updated_genre)));

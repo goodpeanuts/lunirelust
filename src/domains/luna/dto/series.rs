@@ -10,6 +10,7 @@ pub struct SeriesDto {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<Series> for SeriesDto {
@@ -18,6 +19,7 @@ impl From<Series> for SeriesDto {
             id: series.id,
             name: series.name,
             link: series.link,
+            manual: series.manual,
         }
     }
 }
@@ -33,14 +35,15 @@ pub struct SearchSeriesDto {
 pub struct CreateSeriesDto {
     #[validate(length(min = 1, message = "Name cannot be empty"))]
     pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateSeriesDto {
+    pub id: i64,
     #[validate(length(min = 1, message = "Name cannot be empty"))]
-    pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub name: Option<String>,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }

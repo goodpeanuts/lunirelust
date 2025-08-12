@@ -55,9 +55,28 @@ impl StudioRepository for StudioRepo {
         txn: &DatabaseTransaction,
         create_dto: CreateStudioDto,
     ) -> Result<i64, DbErr> {
+        let name = create_dto.name;
+        let link = create_dto.link.unwrap_or_default();
+        let manual = create_dto.manual.unwrap_or(false);
+
+        // Check if a studio with identical fields already exists
+        let existing_studio = StudioEntity::find()
+            .filter(studio::Column::Name.eq(&name))
+            .filter(studio::Column::Link.eq(&link))
+            .filter(studio::Column::Manual.eq(manual))
+            .one(txn)
+            .await?;
+
+        if let Some(existing) = existing_studio {
+            // Return existing studio's ID
+            return Ok(existing.id);
+        }
+
+        // Create new studio if none exists
         let studio = studio::ActiveModel {
-            name: Set(create_dto.name),
-            link: Set(create_dto.link),
+            name: Set(name),
+            link: Set(link),
+            manual: Set(manual),
             ..Default::default()
         };
 
@@ -71,16 +90,49 @@ impl StudioRepository for StudioRepo {
         id: i64,
         update_dto: UpdateStudioDto,
     ) -> Result<Option<Studio>, DbErr> {
-        let studio = studio::ActiveModel {
-            id: Set(id),
-            name: Set(update_dto.name),
-            link: Set(update_dto.link),
-        };
+        let existing_studio = StudioEntity::find_by_id(id).one(txn).await?;
 
-        match studio.update(txn).await {
-            Ok(studio_model) => Ok(Some(Studio::from(studio_model))),
-            Err(_) => Ok(None),
+        if let Some(existing) = existing_studio {
+            // Calculate the new values after update
+            let new_name = update_dto.name.clone().unwrap_or(existing.name.clone());
+            let new_link = update_dto.link.clone().unwrap_or(existing.link.clone());
+            let new_manual = update_dto.manual.unwrap_or(existing.manual);
+
+            // Check if a studio with the updated fields already exists (excluding current record)
+            let matching_studio = StudioEntity::find()
+                .filter(studio::Column::Name.eq(&new_name))
+                .filter(studio::Column::Link.eq(&new_link))
+                .filter(studio::Column::Manual.eq(new_manual))
+                .filter(studio::Column::Id.ne(id))
+                .one(txn)
+                .await?;
+
+            if let Some(matching) = matching_studio {
+                // Delete the current studio and return the matching one
+                StudioEntity::delete_by_id(id).exec(txn).await?;
+                return Ok(Some(Studio::from(matching)));
+            }
+
+            // No matching studio found, proceed with update
+            let mut studio_active_model: studio::ActiveModel = existing.into();
+
+            if let Some(name) = update_dto.name {
+                studio_active_model.name = Set(name);
+            }
+
+            if let Some(link) = update_dto.link {
+                studio_active_model.link = Set(link);
+            }
+
+            if let Some(manual) = update_dto.manual {
+                studio_active_model.manual = Set(manual);
+            }
+
+            let updated_studio = studio_active_model.update(txn).await?;
+            return Ok(Some(Studio::from(updated_studio)));
         }
+
+        Ok(None)
     }
 
     async fn delete(&self, txn: &DatabaseTransaction, id: i64) -> Result<bool, DbErr> {

@@ -10,6 +10,7 @@ pub struct GenreDto {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<Genre> for GenreDto {
@@ -18,6 +19,7 @@ impl From<Genre> for GenreDto {
             id: genre.id,
             name: genre.name,
             link: genre.link,
+            manual: genre.manual,
         }
     }
 }
@@ -37,20 +39,21 @@ pub struct CreateGenreDto {
         message = "Name must be between 1 and 255 characters"
     ))]
     pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateGenreDto {
+    pub id: i64,
     #[validate(length(
         min = 1,
         max = 255,
         message = "Name must be between 1 and 255 characters"
     ))]
-    pub name: String,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: String,
+    pub name: Option<String>,
+    pub link: Option<String>,
+    pub manual: Option<bool>,
 }
 
 // Record related DTOs

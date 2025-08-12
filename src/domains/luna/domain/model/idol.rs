@@ -6,6 +6,7 @@ pub struct Idol {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<idol::Model> for Idol {
@@ -14,6 +15,7 @@ impl From<idol::Model> for Idol {
             id: idol.id,
             name: idol.name,
             link: idol.link,
+            manual: idol.manual,
         }
     }
 }

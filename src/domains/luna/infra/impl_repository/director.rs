@@ -119,10 +119,29 @@ impl DirectorRepository for DirectorRepo {
         txn: &DatabaseTransaction,
         director: CreateDirectorDto,
     ) -> Result<i64, DbErr> {
+        let name = director.name;
+        let link = director.link.unwrap_or_default();
+        let manual = director.manual.unwrap_or(false);
+
+        // Check if a director with identical fields already exists
+        let existing_director = DirectorEntity::find()
+            .filter(director::Column::Name.eq(&name))
+            .filter(director::Column::Link.eq(&link))
+            .filter(director::Column::Manual.eq(manual))
+            .one(txn)
+            .await?;
+
+        if let Some(existing) = existing_director {
+            // Return existing director's ID
+            return Ok(existing.id);
+        }
+
+        // Create new director if none exists
         let director_active_model = director::ActiveModel {
             id: sea_orm::ActiveValue::NotSet,
-            name: Set(director.name),
-            link: Set(director.link),
+            name: Set(name),
+            link: Set(link),
+            manual: Set(manual),
         };
 
         let inserted = director_active_model.insert(txn).await?;
@@ -138,9 +157,40 @@ impl DirectorRepository for DirectorRepo {
         let existing_director = DirectorEntity::find_by_id(id).one(txn).await?;
 
         if let Some(existing) = existing_director {
+            // Calculate the new values after update
+            let new_name = director.name.clone().unwrap_or(existing.name.clone());
+            let new_link = director.link.clone().unwrap_or(existing.link.clone());
+            let new_manual = director.manual.unwrap_or(existing.manual);
+
+            // Check if a director with the updated fields already exists (excluding current record)
+            let matching_director = DirectorEntity::find()
+                .filter(director::Column::Name.eq(&new_name))
+                .filter(director::Column::Link.eq(&new_link))
+                .filter(director::Column::Manual.eq(new_manual))
+                .filter(director::Column::Id.ne(id))
+                .one(txn)
+                .await?;
+
+            if let Some(matching) = matching_director {
+                // Delete the current director and return the matching one
+                DirectorEntity::delete_by_id(id).exec(txn).await?;
+                return Ok(Some(Director::from(matching)));
+            }
+
+            // No matching director found, proceed with update
             let mut director_active_model: director::ActiveModel = existing.into();
-            director_active_model.name = Set(director.name);
-            director_active_model.link = Set(director.link);
+
+            if let Some(name) = director.name {
+                director_active_model.name = Set(name);
+            }
+
+            if let Some(link) = director.link {
+                director_active_model.link = Set(link);
+            }
+
+            if let Some(manual) = director.manual {
+                director_active_model.manual = Set(manual);
+            }
 
             let updated_director = director_active_model.update(txn).await?;
             return Ok(Some(Director::from(updated_director)));

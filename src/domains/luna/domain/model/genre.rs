@@ -6,6 +6,7 @@ pub struct Genre {
     pub id: i64,
     pub name: String,
     pub link: String,
+    pub manual: bool,
 }
 
 impl From<genre::Model> for Genre {
@@ -14,6 +15,7 @@ impl From<genre::Model> for Genre {
             id: genre.id,
             name: genre.name,
             link: genre.link,
+            manual: genre.manual,
         }
     }
 }

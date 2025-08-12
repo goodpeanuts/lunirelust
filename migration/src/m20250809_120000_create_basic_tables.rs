@@ -20,7 +20,13 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Director::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Director::Link).text().not_null())
+                    .col(ColumnDef::new(Director::Link).text().not_null().default(""))
+                    .col(
+                        ColumnDef::new(Director::Manual)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -39,7 +45,13 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Studio::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Studio::Link).text().not_null())
+                    .col(ColumnDef::new(Studio::Link).text().not_null().default(""))
+                    .col(
+                        ColumnDef::new(Studio::Manual)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -58,7 +70,13 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Label::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Label::Link).text().not_null())
+                    .col(ColumnDef::new(Label::Link).text().not_null().default(""))
+                    .col(
+                        ColumnDef::new(Label::Manual)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -77,7 +95,13 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Series::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Series::Link).text().not_null())
+                    .col(ColumnDef::new(Series::Link).text().not_null().default(""))
+                    .col(
+                        ColumnDef::new(Series::Manual)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -96,7 +120,13 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Genre::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Genre::Link).text().not_null())
+                    .col(ColumnDef::new(Genre::Link).text().not_null().default(""))
+                    .col(
+                        ColumnDef::new(Genre::Manual)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -115,7 +145,13 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Idol::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Idol::Link).text().not_null())
+                    .col(ColumnDef::new(Idol::Link).text().not_null().default(""))
+                    .col(
+                        ColumnDef::new(Idol::Manual)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -153,6 +189,7 @@ enum Director {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -161,6 +198,7 @@ enum Studio {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -169,6 +207,7 @@ enum Label {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -177,6 +216,7 @@ enum Series {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -185,6 +225,7 @@ enum Genre {
     Id,
     Name,
     Link,
+    Manual,
 }
 
 #[derive(DeriveIden)]
@@ -193,4 +234,5 @@ enum Idol {
     Id,
     Name,
     Link,
+    Manual,
 }

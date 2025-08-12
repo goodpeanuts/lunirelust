@@ -53,9 +53,28 @@ impl SeriesRepository for SeriesRepo {
         txn: &DatabaseTransaction,
         series: CreateSeriesDto,
     ) -> Result<i64, DbErr> {
+        let name = series.name;
+        let link = series.link.unwrap_or_default();
+        let manual = series.manual.unwrap_or_default();
+
+        // Check if a series with identical fields already exists
+        let existing_series = SeriesEntity::find()
+            .filter(series::Column::Name.eq(&name))
+            .filter(series::Column::Link.eq(&link))
+            .filter(series::Column::Manual.eq(manual))
+            .one(txn)
+            .await?;
+
+        if let Some(existing) = existing_series {
+            // Return existing series's ID
+            return Ok(existing.id);
+        }
+
+        // Create new series if none exists
         let active_series = series::ActiveModel {
-            name: Set(series.name),
-            link: Set(series.link),
+            name: Set(name),
+            link: Set(link),
+            manual: Set(manual),
             ..Default::default()
         };
 
@@ -71,9 +90,38 @@ impl SeriesRepository for SeriesRepo {
     ) -> Result<Option<Series>, DbErr> {
         match SeriesEntity::find_by_id(id).one(txn).await? {
             Some(existing) => {
+                // Calculate the new values after update
+                let new_name = series.name.clone().unwrap_or(existing.name.clone());
+                let new_link = series.link.clone().unwrap_or(existing.link.clone());
+                let new_manual = series.manual.unwrap_or(existing.manual);
+
+                // Check if a series with the updated fields already exists (excluding current record)
+                let matching_series = SeriesEntity::find()
+                    .filter(series::Column::Name.eq(&new_name))
+                    .filter(series::Column::Link.eq(&new_link))
+                    .filter(series::Column::Manual.eq(new_manual))
+                    .filter(series::Column::Id.ne(id))
+                    .one(txn)
+                    .await?;
+
+                if let Some(matching) = matching_series {
+                    // Delete the current series and return the matching one
+                    SeriesEntity::delete_by_id(id).exec(txn).await?;
+                    return Ok(Some(Series::from(matching)));
+                }
+
+                // No matching series found, proceed with update
                 let mut active_series: series::ActiveModel = existing.into();
-                active_series.name = Set(series.name);
-                active_series.link = Set(series.link);
+
+                if let Some(name) = series.name {
+                    active_series.name = Set(name);
+                }
+                if let Some(link) = series.link {
+                    active_series.link = Set(link);
+                }
+                if let Some(manual) = series.manual {
+                    active_series.manual = Set(manual);
+                }
 
                 let updated = active_series.update(txn).await?;
                 Ok(Some(Series::from(updated)))
