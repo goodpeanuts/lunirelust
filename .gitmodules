@@ -1,6 +1,3 @@
 [submodule "subm"]
 	path = subm
 	url = git@github.com:goodpeanuts/lunirelust-subm.git
-[submodule "front"]
-	path = front
-	url = git@github.com:goodpeanuts/lunirelust-front.git
