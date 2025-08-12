@@ -1,5 +1,5 @@
 [files]
-extend-exclude = ["db-seed/*", "migration/src/m20250807_074248_seed_initial_data.rs"]
+extend-exclude = ["subm/*", "migration/src/m20250807_074248_seed_initial_data.rs"]
 
 [default.extend-words]
 wrk = "wrk"
