@@ -1,11 +1,13 @@
 //! This module defines service traits for luna (cards) domain entities,
 //! responsible for business logic operations.
 
+use crate::common::config::Config;
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
 pub(super) mod director;
+pub(super) mod file;
 pub(super) mod genre;
 pub(super) mod idol;
 pub(super) mod label;
@@ -17,7 +19,7 @@ pub(super) mod studio;
 /// Combined service trait that includes all luna domain services.
 pub trait LunaServiceTrait: Send + Sync {
     /// Constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn LunaServiceTrait>
+    fn create_service(config: Config, db: DatabaseConnection) -> Arc<dyn LunaServiceTrait>
     where
         Self: Sized;
 
@@ -41,4 +43,7 @@ pub trait LunaServiceTrait: Send + Sync {
 
     /// Get record service
     fn record_service(&self) -> &dyn record::RecordServiceTrait;
+
+    /// Get file service
+    fn file_service(&self) -> &dyn file::FileServiceTrait;
 }

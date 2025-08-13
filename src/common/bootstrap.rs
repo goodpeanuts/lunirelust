@@ -21,7 +21,8 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
     let auth_service: Arc<dyn AuthServiceTrait> =
         AuthService::create_service(pool.clone(), Arc::clone(&user_service));
     let device_service: Arc<dyn DeviceServiceTrait> = DeviceService::create_service(pool.clone());
-    let luna_service: Arc<dyn LunaServiceTrait> = LunaService::create_service(pool.clone());
+    let luna_service: Arc<dyn LunaServiceTrait> =
+        LunaService::create_service(config.clone(), pool.clone());
 
     AppState::new(
         config,

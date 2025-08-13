@@ -111,6 +111,9 @@ use super::handlers::{
     patch_record,
     patch_series,
     patch_studio,
+    // Media handlers
+    serve_media,
+    serve_media_with_number,
     update_director,
     update_genre,
     update_idol,
@@ -124,9 +127,9 @@ use crate::{
     common::app_state::AppState,
     domains::luna::dto::{
         CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-        CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto, RecordDto,
-        SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto,
-        UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
+        CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto, MediaAccessDto,
+        RecordDto, SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto,
+        UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
     },
 };
 
@@ -214,7 +217,8 @@ use utoipa::{
         StudioDto, CreateStudioDto, UpdateStudioDto,
         SeriesDto, CreateSeriesDto, UpdateSeriesDto,
         IdolDto, CreateIdolDto, UpdateIdolDto,
-        RecordDto, CreateRecordDto, UpdateRecordDto
+        RecordDto, CreateRecordDto, UpdateRecordDto,
+        MediaAccessDto
     )),
     tags(
         (name = "Directors", description = "Director management endpoints"),
@@ -224,7 +228,8 @@ use utoipa::{
         (name = "Series", description = "Series management endpoints"),
         (name = "Idols", description = "Idol management endpoints"),
         (name = "Records", description = "Record management endpoints"),
-        (name = "Statistics", description = "Statistics and count endpoints")
+        (name = "Statistics", description = "Statistics and count endpoints"),
+        (name = "Media", description = "Media file serving endpoints")
     ),
     security(
         ("bearer_auth" = [])
@@ -318,4 +323,7 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/studio-records-count", get(get_studio_records_count))
         .route("/series-records-count", get(get_series_records_count))
         .route("/idol-records-count", get(get_idol_records_count))
+        // Media routes
+        .route("/card/media/{id}", get(serve_media))
+        .route("/card/media/{id}/{n}", get(serve_media_with_number))
 }

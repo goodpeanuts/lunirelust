@@ -4,6 +4,7 @@ mod api {
         mod genre;
         mod idol;
         mod label;
+        mod media;
         mod record;
         mod series;
         mod statistics;
@@ -13,6 +14,7 @@ mod api {
         pub use genre::*;
         pub use idol::*;
         pub use label::*;
+        pub use media::*;
         pub use record::*;
         pub use series::*;
         pub use statistics::*;
@@ -50,9 +52,9 @@ mod domain {
         director::*, genre::*, idol::*, label::*, links::*, record::*, series::*, studio::*,
     };
     pub use service::{
-        director::DirectorServiceTrait, genre::GenreServiceTrait, idol::IdolServiceTrait,
-        label::LabelServiceTrait, record::RecordServiceTrait, series::SeriesServiceTrait,
-        studio::StudioServiceTrait, LunaServiceTrait,
+        director::DirectorServiceTrait, file::FileServiceTrait, genre::GenreServiceTrait,
+        idol::IdolServiceTrait, label::LabelServiceTrait, record::RecordServiceTrait,
+        series::SeriesServiceTrait, studio::StudioServiceTrait, LunaServiceTrait,
     };
 
     pub use repository::{
@@ -68,6 +70,7 @@ pub mod dto {
     mod idol;
     mod label;
     mod link;
+    mod media;
     mod pagination;
     mod record;
     mod series;
@@ -79,6 +82,7 @@ pub mod dto {
     pub use idol::*;
     pub use label::*;
     pub use link::*;
+    pub use media::*;
     pub use pagination::*;
     pub use record::*;
     pub use series::*;

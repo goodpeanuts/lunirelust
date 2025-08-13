@@ -1,12 +1,14 @@
+use crate::common::config::Config;
 use crate::domains::luna::domain::{
-    DirectorServiceTrait, GenreServiceTrait, IdolServiceTrait, LabelServiceTrait, LunaServiceTrait,
-    RecordServiceTrait, SeriesServiceTrait, StudioServiceTrait,
+    DirectorServiceTrait, FileServiceTrait, GenreServiceTrait, IdolServiceTrait, LabelServiceTrait,
+    LunaServiceTrait, RecordServiceTrait, SeriesServiceTrait, StudioServiceTrait,
 };
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
 mod director;
+mod file;
 mod genre;
 mod idol;
 mod label;
@@ -24,12 +26,13 @@ pub struct LunaService {
     pub series_service: Arc<dyn SeriesServiceTrait>,
     pub idol_service: Arc<dyn IdolServiceTrait>,
     pub record_service: Arc<dyn RecordServiceTrait>,
+    pub file_service: Arc<dyn FileServiceTrait>,
 }
 
 #[async_trait]
 impl LunaServiceTrait for LunaService {
     /// Constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn LunaServiceTrait> {
+    fn create_service(config: Config, db: DatabaseConnection) -> Arc<dyn LunaServiceTrait> {
         Arc::new(Self {
             director_service: director::DirectorService::create_service(db.clone()),
             genre_service: genre::GenreService::create_service(db.clone()),
@@ -38,6 +41,7 @@ impl LunaServiceTrait for LunaService {
             series_service: series::SeriesService::create_service(db.clone()),
             idol_service: idol::IdolService::create_service(db.clone()),
             record_service: record::RecordService::create_service(db),
+            file_service: Arc::new(file::FileService::new(config)),
         })
     }
 
@@ -74,5 +78,10 @@ impl LunaServiceTrait for LunaService {
     /// Get record service
     fn record_service(&self) -> &dyn RecordServiceTrait {
         &*self.record_service
+    }
+
+    /// Get file service
+    fn file_service(&self) -> &dyn FileServiceTrait {
+        &*self.file_service
     }
 }
