@@ -7,7 +7,7 @@ pub struct MediaAccessDto {
     /// The unique identifier for the media
     pub id: String,
     /// Optional sequence number for the media file (e.g., 1, 2, 3...)
-    /// If not provided, returns the default image (id.png)
+    /// If not provided, returns the default image (id.jpg)
     pub n: Option<u32>,
 }
 
@@ -20,8 +20,8 @@ impl MediaAccessDto {
     /// Generates the expected filename based on id and optional sequence number
     pub fn get_filename(&self) -> String {
         match self.n {
-            Some(seq) => format!("{}-{}.png", self.id, seq),
-            None => format!("{}.png", self.id),
+            Some(seq) => format!("{}-{}.jpg", self.id, seq),
+            None => format!("{}.jpg", self.id),
         }
     }
 }

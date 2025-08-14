@@ -56,7 +56,7 @@ impl FileServiceTrait for FileService {
         })?;
 
         // Determine content type based on file extension
-        let content_type = "image/png"; // Since we're only serving PNG files
+        let content_type = "image/jpg"; // Since we're only serving jpg files
 
         // Create the response
         let response = Response::builder()

@@ -21,9 +21,9 @@ pub struct MediaQueryParams {
 
 /// Serves media files (images) for luna cards
 ///
-/// This endpoint serves PNG images based on the provided ID and optional sequence number.
-/// - If `n` is provided, it returns `{id}-{n}.png`
-/// - If `n` is not provided, it returns `{id}.png`
+/// This endpoint serves jpg images based on the provided ID and optional sequence number.
+/// - If `n` is provided, it returns `{id}-{n}.jpg`
+/// - If `n` is not provided, it returns `{id}.jpg`
 ///
 /// Files are looked up in the configured private assets directory under the subdirectory named by the ID.
 #[utoipa::path(
@@ -34,7 +34,7 @@ pub struct MediaQueryParams {
         MediaQueryParams,
     ),
     responses(
-        (status = 200, description = "Media file served successfully", content_type = "image/png"),
+        (status = 200, description = "Media file served successfully", content_type = "image/jpg"),
         (status = 404, description = "Media file or directory not found"),
         (status = 500, description = "Internal server error")
     ),
