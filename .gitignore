@@ -11,3 +11,4 @@
 
 # test images, will genereate after running tests
 cat(*).png
+images/

@@ -324,6 +324,6 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/series-records-count", get(get_series_records_count))
         .route("/idol-records-count", get(get_idol_records_count))
         // Media routes
-        .route("/card/media/{id}", get(serve_media))
-        .route("/card/media/{id}/{n}", get(serve_media_with_number))
+        .route("/media/{id}", get(serve_media))
+        .route("/media/{id}/{n}", get(serve_media_with_number))
 }
