@@ -20,7 +20,7 @@ impl MediaAccessDto {
     /// Generates the expected filename based on id and optional sequence number
     pub fn get_filename(&self) -> String {
         match self.n {
-            Some(seq) => format!("{}-{}.jpg", self.id, seq),
+            Some(seq) => format!("{}_{}.jpg", self.id, seq),
             None => format!("{}.jpg", self.id),
         }
     }

@@ -28,7 +28,9 @@ impl FileServiceTrait for FileService {
     /// Serves a media file based on the provided media access parameters
     async fn serve_media_file(&self, media_dto: MediaAccessDto) -> Result<Response, AppError> {
         // Build the file path: assets_private_path/id/filename
-        let file_dir = Path::new(&self.config.assets_private_path).join(&media_dto.id);
+        let file_dir = Path::new(&self.config.assets_private_path)
+            .join("images")
+            .join(&media_dto.id);
         let filename = media_dto.get_filename();
         let file_path = file_dir.join(&filename);
 
