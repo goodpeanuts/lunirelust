@@ -20,10 +20,11 @@ use axum::{response::IntoResponse, Json};
     tag = "UserAuth"
 )]
 pub async fn create_user_auth(
-    State(state): State<AppState>,
-    Json(payload): Json<RegisterDto>,
+    State(_state): State<AppState>,
+    Json(_payload): Json<RegisterDto>,
 ) -> Result<impl IntoResponse, AppError> {
-    state.auth_service.create_user_auth(payload).await?;
+    #[cfg(feature = "open-register")]
+    _state.auth_service.create_user_auth(_payload).await?;
     Ok(RestApiResponse::success(()))
 }
 
