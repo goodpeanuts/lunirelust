@@ -60,11 +60,16 @@ impl FileServiceTrait for FileService {
         // Determine content type based on file extension
         let content_type = "image/jpg"; // Since we're only serving jpg files
 
-        // Create the response
+        // Create the response with cache headers
         let response = Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, content_type)
             .header(header::CONTENT_LENGTH, file_content.len())
+            .header(header::CACHE_CONTROL, "public, max-age=3600, immutable")
+            .header(
+                header::ETAG,
+                format!("\"{:x}\"", md5::compute(&file_content)),
+            )
             .body(Body::from(file_content))
             .map_err(|err| {
                 tracing::error!("Error building response: {}", err);

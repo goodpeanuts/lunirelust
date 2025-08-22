@@ -21,8 +21,6 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use utoipa::OpenApi as _;
-
 use crate::{
     common::{
         app_state::AppState,
@@ -30,14 +28,21 @@ use crate::{
         jwt,
     },
     domains::{
-        auth::{user_auth_routes, UserAuthApiDoc},
-        device::{device_routes, DeviceApiDoc},
-        file::{file_routes, FileApiDoc},
-        luna::{luna_routes, LunaApiDoc},
-        user::{user_routes, UserApiDoc},
+        auth::user_auth_routes, device::device_routes, file::file_routes, luna::luna_routes,
+        user::user_routes,
     },
 };
 
+#[cfg(feature = "swagger")]
+use utoipa::OpenApi as _;
+
+#[cfg(feature = "swagger")]
+use crate::domains::{
+    auth::UserAuthApiDoc, device::DeviceApiDoc, file::FileApiDoc, luna::LunaApiDoc,
+    user::UserApiDoc,
+};
+
+#[cfg(feature = "swagger")]
 use utoipa_swagger_ui::SwaggerUi;
 
 use once_cell::sync::Lazy;
@@ -53,6 +58,7 @@ pub static FORBIDDEN_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         .expect("Failed to compile regex pattern for script tags")]
 });
 
+#[cfg(feature = "swagger")]
 fn create_swagger_ui() -> SwaggerUi {
     SwaggerUi::new("/docs")
         .url(
@@ -75,7 +81,7 @@ pub fn create_router(state: AppState) -> Router {
     // Create a common middleware stack for error handling, timeouts, and CORS.
     let middleware_stack = ServiceBuilder::new()
         .layer(HandleErrorLayer::new(handle_error))
-        .timeout(Duration::from_secs(1800))
+        .timeout(Duration::from_secs(60))
         .layer(cors);
 
     // /auth routes (login, register, refresh, etc.) — no logging here
@@ -109,21 +115,25 @@ pub fn create_router(state: AppState) -> Router {
             ServeDir::new(state.config.assets_private_path.clone()),
         )
         // enforce JWT authentication
-        .route_layer(middleware::from_fn(jwt::jwt_auth))
-        // attach inspecter
-        .layer(middleware::from_fn(make_request_response_inspecter(true)));
+        .route_layer(middleware::from_fn(jwt::jwt_auth));
+    // Note: No heavy middleware for static assets to improve performance
 
     // Create the main router
     // and merge all the routes
     // and add the middleware stack
     // and add the state
-    Router::new()
+    let router = Router::new()
         .route("/health", axum::routing::get(health_check))
         .merge(auth_router)
         .merge(protected_routes)
-        .merge(create_swagger_ui())
         .merge(public_assets_routes)
-        .merge(private_assets_routes)
+        .merge(private_assets_routes);
+
+    // Conditionally add Swagger UI only if the feature is enabled
+    #[cfg(feature = "swagger")]
+    let router = router.merge(create_swagger_ui());
+
+    router
         .layer(NormalizePathLayer::trim_trailing_slash())
         .layer(
             TraceLayer::new_for_http()

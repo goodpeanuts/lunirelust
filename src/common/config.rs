@@ -38,11 +38,11 @@ impl Config {
             database_url: env::var("DATABASE_URL")?,
 
             database_max_connections: env::var("DATABASE_MAX_CONNECTIONS")
+                .map(|s| s.parse::<u32>().unwrap_or(20))
+                .unwrap_or(20),
+            database_min_connections: env::var("DATABASE_MIN_CONNECTIONS")
                 .map(|s| s.parse::<u32>().unwrap_or(5))
                 .unwrap_or(5),
-            database_min_connections: env::var("DATABASE_MIN_CONNECTIONS")
-                .map(|s| s.parse::<u32>().unwrap_or(1))
-                .unwrap_or(1),
 
             service_host: env::var("SERVICE_HOST")?,
             service_port: env::var("SERVICE_PORT")?,
@@ -73,10 +73,10 @@ pub async fn setup_database(config: &Config) -> Result<DatabaseConnection, sea_o
     let mut opt = ConnectOptions::new(&config.database_url);
     opt.min_connections(config.database_min_connections)
         .max_connections(config.database_max_connections)
-        .connect_timeout(Duration::from_secs(8))
-        .acquire_timeout(Duration::from_secs(8))
-        .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8));
+        .connect_timeout(Duration::from_secs(30))
+        .acquire_timeout(Duration::from_secs(30))
+        .idle_timeout(Duration::from_secs(600))
+        .max_lifetime(Duration::from_secs(1800));
     // .sqlx_logging(true)
     // .sqlx_logging_level(tracing::Level::INFO);
 

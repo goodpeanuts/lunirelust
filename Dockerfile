@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y libssl-dev pkg-config curl
 # Copy sources
 COPY . .
 
-# Build in release mode
-RUN cargo build --release
+# Build in release mode without swagger
+RUN cargo build --release --no-default-features
 
 # Build migration tool as binary
 WORKDIR /app/migration
