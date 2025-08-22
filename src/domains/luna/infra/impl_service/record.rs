@@ -3,8 +3,8 @@ use crate::{
     domains::luna::{
         domain::{Record, RecordRepository, RecordServiceTrait},
         dto::{
-            CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, SearchRecordDto,
-            UpdateRecordDto,
+            CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, RecordSlimDto,
+            SearchRecordDto, UpdateRecordDto,
         },
         infra::RecordRepo,
     },
@@ -106,14 +106,14 @@ impl RecordServiceTrait for RecordService {
         Ok(records.into_iter().map(RecordDto::from).collect())
     }
 
-    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError> {
-        let ids = self
+    async fn get_all_record_slim(&self) -> Result<Vec<RecordSlimDto>, AppError> {
+        let records = self
             .repo
-            .find_all_ids(&self.db)
+            .find_all_slim(&self.db)
             .await
             .map_err(AppError::DatabaseError)?;
 
-        Ok(ids)
+        Ok(records.into_iter().map(RecordSlimDto::from).collect())
     }
 
     async fn create_record(&self, create_dto: CreateRecordDto) -> Result<RecordDto, AppError> {

@@ -20,7 +20,7 @@ use super::handlers::{
     __path_delete_record,
     __path_delete_series,
     __path_delete_studio,
-    __path_get_all_record_ids,
+    __path_get_all_record_slim,
     __path_get_director_by_id,
     // Auto-generated paths for count handlers
     __path_get_director_records_count,
@@ -80,7 +80,7 @@ use super::handlers::{
     delete_series,
     delete_studio,
     // Record handlers additional
-    get_all_record_ids,
+    get_all_record_slim,
     get_director_by_id,
     // Count handlers
     get_director_records_count,
@@ -133,8 +133,8 @@ use crate::{
     domains::luna::dto::{
         CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
         CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto, MediaAccessDto,
-        RecordDto, SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto,
-        UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
+        RecordDto, RecordSlimDto, SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto,
+        UpdateIdolDto, UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
     },
 };
 
@@ -214,7 +214,7 @@ use utoipa::{
         get_records_by_series,
         get_records_by_genre,
         get_records_by_idol,
-        get_all_record_ids,
+        get_all_record_slim,
         // media
         serve_media_with_number,
         upload_images,
@@ -226,7 +226,7 @@ use utoipa::{
         StudioDto, CreateStudioDto, UpdateStudioDto,
         SeriesDto, CreateSeriesDto, UpdateSeriesDto,
         IdolDto, CreateIdolDto, UpdateIdolDto,
-        RecordDto, CreateRecordDto, UpdateRecordDto,
+        RecordDto, RecordSlimDto, CreateRecordDto, UpdateRecordDto,
         MediaAccessDto
     )),
     tags(
@@ -318,7 +318,7 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/{id}", put(update_record))
         .route("/records/{id}", patch(patch_record))
         .route("/records/{id}", delete(delete_record))
-        .route("/records/all_id", get(get_all_record_ids))
+        .route("/records/slim", get(get_all_record_slim))
         // Records by entity endpoints
         .route("/director/{id}/records", get(get_records_by_director))
         .route("/studio/{id}/records", get(get_records_by_studio))

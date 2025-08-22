@@ -16,6 +16,21 @@ use super::{
     CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateSeriesDto,
     CreateStudioDto, UpdateGenreDto,
 };
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RecordSlimDto {
+    pub id: String,
+    pub title: String,
+    pub date: Date,
+    pub duration: i32,
+    pub director: String,
+    pub studio: String,
+    pub label: String,
+    pub series: String,
+    pub genres: Vec<String>,
+    pub idols: Vec<String>,
+    pub has_links: bool,
+    pub links: Vec<LinkDto>,
+}
 
 // Record DTOs
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -69,6 +84,25 @@ impl From<Record> for RecordDto {
             update_time: record.update_time,
             creator: record.creator,
             modified_by: record.modified_by,
+        }
+    }
+}
+
+impl From<Record> for RecordSlimDto {
+    fn from(record: Record) -> Self {
+        Self {
+            id: record.id,
+            title: record.title,
+            date: record.date,
+            duration: record.duration,
+            director: record.director.name,
+            studio: record.studio.name,
+            label: record.label.name,
+            series: record.series.name,
+            genres: record.genres.into_iter().map(|rg| rg.genre.name).collect(),
+            idols: record.idols.into_iter().map(|ip| ip.idol.name).collect(),
+            has_links: record.has_links,
+            links: record.links.into_iter().map(LinkDto::from).collect(),
         }
     }
 }

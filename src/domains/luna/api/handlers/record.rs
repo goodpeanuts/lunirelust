@@ -1,8 +1,8 @@
 use crate::{
     common::{app_state::AppState, dto::RestApiResponse, error::AppError, jwt::Claims},
     domains::luna::dto::{
-        CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, SearchRecordDto,
-        UpdateRecordDto,
+        CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, RecordSlimDto,
+        SearchRecordDto, UpdateRecordDto,
     },
 };
 
@@ -325,17 +325,17 @@ pub async fn get_records_by_idol(
 
 #[utoipa::path(
     get,
-    path = "/cards/records/all_id",
-    responses((status = 200, description = "Get all record IDs", body = Vec<String>)),
+    path = "/cards/records/slim",
+    responses((status = 200, description = "Get all record slim data", body = Vec<RecordSlimDto>)),
     tag = "Records"
 )]
-pub async fn get_all_record_ids(
+pub async fn get_all_record_slim(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let ids = state
+    let records = state
         .luna_service
         .record_service()
-        .get_all_record_ids()
+        .get_all_record_slim()
         .await?;
-    Ok(RestApiResponse::success(ids))
+    Ok(RestApiResponse::success(records))
 }

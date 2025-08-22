@@ -1,8 +1,8 @@
 use crate::{
     common::error::AppError,
     domains::luna::dto::{
-        CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, SearchRecordDto,
-        UpdateRecordDto,
+        CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, RecordSlimDto,
+        SearchRecordDto, UpdateRecordDto,
     },
 };
 
@@ -22,7 +22,7 @@ pub trait RecordServiceTrait: Send + Sync {
     async fn get_record_by_id(&self, id: &str) -> Result<RecordDto, AppError>;
 
     /// get all record IDs
-    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError>;
+    async fn get_all_record_slim(&self) -> Result<Vec<RecordSlimDto>, AppError>;
 
     /// Retrieves record list by condition
     async fn get_record_list(

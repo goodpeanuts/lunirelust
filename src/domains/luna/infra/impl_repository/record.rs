@@ -434,16 +434,15 @@ impl RecordRepository for RecordRepo {
         Ok(result.rows_affected > 0)
     }
 
-    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        use sea_orm::QuerySelect as _;
+    async fn find_all_slim(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
+        let records = RecordEntity::find().all(db).await?;
 
-        let ids = RecordEntity::find()
-            .select_only()
-            .column(record::Column::Id)
-            .into_tuple::<String>()
-            .all(db)
-            .await?;
+        let mut result = Vec::new();
+        for record_model in records {
+            let record = self.load_record_with_relations(db, record_model).await?;
+            result.push(record);
+        }
 
-        Ok(ids)
+        Ok(result)
     }
 }
