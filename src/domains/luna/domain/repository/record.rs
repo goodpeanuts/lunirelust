@@ -42,4 +42,7 @@ pub trait RecordRepository: Send + Sync {
 
     /// Deletes a record by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: String) -> Result<bool, DbErr>;
+
+    /// Retrieves all record IDs from the database.
+    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
 }

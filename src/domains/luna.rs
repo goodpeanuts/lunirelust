@@ -68,6 +68,7 @@ pub mod dto {
     mod director;
     mod genre;
     mod idol;
+    mod image;
     mod label;
     mod link;
     mod media;
@@ -80,6 +81,7 @@ pub mod dto {
     pub use director::*;
     pub use genre::*;
     pub use idol::*;
+    pub use image::*;
     pub use label::*;
     pub use link::*;
     pub use media::*;

@@ -106,6 +106,16 @@ impl RecordServiceTrait for RecordService {
         Ok(records.into_iter().map(RecordDto::from).collect())
     }
 
+    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError> {
+        let ids = self
+            .repo
+            .find_all_ids(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(ids)
+    }
+
     async fn create_record(&self, create_dto: CreateRecordDto) -> Result<RecordDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 

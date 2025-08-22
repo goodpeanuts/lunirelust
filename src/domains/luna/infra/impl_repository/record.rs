@@ -433,4 +433,17 @@ impl RecordRepository for RecordRepo {
         let result = RecordEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
     }
+
+    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        use sea_orm::QuerySelect as _;
+
+        let ids = RecordEntity::find()
+            .select_only()
+            .column(record::Column::Id)
+            .into_tuple::<String>()
+            .all(db)
+            .await?;
+
+        Ok(ids)
+    }
 }

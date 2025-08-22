@@ -21,6 +21,9 @@ pub trait RecordServiceTrait: Send + Sync {
     /// Retrieves a record by their unique identifier.
     async fn get_record_by_id(&self, id: &str) -> Result<RecordDto, AppError>;
 
+    /// get all record IDs
+    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError>;
+
     /// Retrieves record list by condition
     async fn get_record_list(
         &self,

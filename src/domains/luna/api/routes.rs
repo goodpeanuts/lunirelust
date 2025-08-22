@@ -20,6 +20,7 @@ use super::handlers::{
     __path_delete_record,
     __path_delete_series,
     __path_delete_studio,
+    __path_get_all_record_ids,
     __path_get_director_by_id,
     // Auto-generated paths for count handlers
     __path_get_director_records_count,
@@ -55,6 +56,7 @@ use super::handlers::{
     __path_patch_record,
     __path_patch_series,
     __path_patch_studio,
+    __path_serve_media_with_number,
     __path_update_director,
     __path_update_genre,
     __path_update_idol,
@@ -62,6 +64,7 @@ use super::handlers::{
     __path_update_record,
     __path_update_series,
     __path_update_studio,
+    __path_upload_images,
     create_director,
     create_genre,
     create_idol,
@@ -76,6 +79,8 @@ use super::handlers::{
     delete_record,
     delete_series,
     delete_studio,
+    // Record handlers additional
+    get_all_record_ids,
     get_director_by_id,
     // Count handlers
     get_director_records_count,
@@ -112,7 +117,6 @@ use super::handlers::{
     patch_series,
     patch_studio,
     // Media handlers
-    serve_media,
     serve_media_with_number,
     update_director,
     update_genre,
@@ -121,6 +125,7 @@ use super::handlers::{
     update_record,
     update_series,
     update_studio,
+    upload_images,
 };
 
 use crate::{
@@ -209,6 +214,10 @@ use utoipa::{
         get_records_by_series,
         get_records_by_genre,
         get_records_by_idol,
+        get_all_record_ids,
+        // media
+        serve_media_with_number,
+        upload_images,
     ),
     components(schemas(
         DirectorDto, CreateDirectorDto, UpdateDirectorDto,
@@ -309,6 +318,7 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/{id}", put(update_record))
         .route("/records/{id}", patch(patch_record))
         .route("/records/{id}", delete(delete_record))
+        .route("/records/all_id", get(get_all_record_ids))
         // Records by entity endpoints
         .route("/director/{id}/records", get(get_records_by_director))
         .route("/studio/{id}/records", get(get_records_by_studio))
@@ -324,6 +334,6 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/series-records-count", get(get_series_records_count))
         .route("/idol-records-count", get(get_idol_records_count))
         // Media routes
-        .route("/media/{id}", get(serve_media))
         .route("/media/{id}/{n}", get(serve_media_with_number))
+        .route("/media/upload", post(upload_images))
 }

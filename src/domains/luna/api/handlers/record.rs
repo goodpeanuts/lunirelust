@@ -322,3 +322,20 @@ pub async fn get_records_by_idol(
         .await?;
     Ok(RestApiResponse::success(records))
 }
+
+#[utoipa::path(
+    get,
+    path = "/cards/records/all_id",
+    responses((status = 200, description = "Get all record IDs", body = Vec<String>)),
+    tag = "Records"
+)]
+pub async fn get_all_record_ids(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let ids = state
+        .luna_service
+        .record_service()
+        .get_all_record_ids()
+        .await?;
+    Ok(RestApiResponse::success(ids))
+}
