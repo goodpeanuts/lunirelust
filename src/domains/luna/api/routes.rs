@@ -56,7 +56,7 @@ use super::handlers::{
     __path_patch_record,
     __path_patch_series,
     __path_patch_studio,
-    __path_serve_media_with_number,
+    __path_serve_media,
     __path_update_director,
     __path_update_genre,
     __path_update_idol,
@@ -117,6 +117,7 @@ use super::handlers::{
     patch_series,
     patch_studio,
     // Media handlers
+    serve_media,
     serve_media_with_number,
     update_director,
     update_genre,
@@ -216,7 +217,7 @@ use utoipa::{
         get_records_by_idol,
         get_all_record_slim,
         // media
-        serve_media_with_number,
+        serve_media,
         upload_images,
     ),
     components(schemas(
@@ -334,6 +335,7 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/series-records-count", get(get_series_records_count))
         .route("/idol-records-count", get(get_idol_records_count))
         // Media routes
+        .route("/media/{id}", get(serve_media))
         .route("/media/{id}/{n}", get(serve_media_with_number))
         .route("/media/upload", post(upload_images))
 }
