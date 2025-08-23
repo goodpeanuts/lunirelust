@@ -502,9 +502,17 @@ impl RecordRepository for RecordRepo {
     }
 
     async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        let records = RecordEntity::find()
+        use sea_orm::FromQueryResult;
+
+        #[derive(FromQueryResult)]
+        struct IdOnly {
+            id: String,
+        }
+
+        let records: Vec<IdOnly> = RecordEntity::find()
             .select_only()
             .column(record::Column::Id)
+            .into_model::<IdOnly>()
             .all(db)
             .await?;
 
