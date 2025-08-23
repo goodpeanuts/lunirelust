@@ -10,7 +10,7 @@ use crate::{
             LabelRepository as _, Record, RecordRepository, Series, SeriesRepository as _, Studio,
             StudioRepository as _,
         },
-        dto::{CreateRecordDto, SearchRecordDto, UpdateRecordDto},
+        dto::{CreateLinkDto, CreateRecordDto, SearchRecordDto, UpdateRecordDto},
         infra::{DirectorRepo, GenreRepo, IdolRepo, LabelRepo, SeriesRepo, StudioRepo},
     },
     entities::DirectorEntity,
@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use sea_orm::prelude::Decimal;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
-    EntityTrait as _, QueryFilter as _, Set,
+    EntityTrait as _, QueryFilter as _, QuerySelect as _, Set,
 };
 
 // Record Repository Implementation
@@ -429,6 +429,61 @@ impl RecordRepository for RecordRepo {
         }
     }
 
+    async fn update_record_links(
+        &self,
+        txn: &DatabaseTransaction,
+        record_id: String,
+        new_links: Vec<CreateLinkDto>,
+    ) -> Result<i32, DbErr> {
+        // Get existing links for the record
+        let existing_links = LinksEntity::find()
+            .filter(links::Column::RecordId.eq(&record_id))
+            .all(txn)
+            .await?;
+
+        let mut added_count = 0;
+
+        // Check each new link to see if it already exists
+        for new_link in new_links {
+            let link_exists = if let Some(ref link_url) = new_link.link {
+                existing_links
+                    .iter()
+                    .any(|existing| existing.link == *link_url)
+            } else {
+                false // Skip links without URL
+            };
+
+            if !link_exists && new_link.link.is_some() {
+                // Insert new link
+                let link_active_model = links::ActiveModel {
+                    record_id: Set(record_id.clone()),
+                    name: Set(new_link.name),
+                    size: Set(new_link.size.unwrap_or(Decimal::from(0))),
+                    date: Set(new_link
+                        .date
+                        .unwrap_or_else(|| chrono::Utc::now().date_naive())),
+                    link: Set(new_link.link.unwrap_or_default()),
+                    star: Set(new_link.star.unwrap_or(false)),
+                    ..Default::default()
+                };
+                link_active_model.insert(txn).await?;
+                added_count += 1;
+            }
+        }
+
+        // Update has_links flag if new links were added
+        if added_count > 0 {
+            let record = RecordEntity::find_by_id(&record_id).one(txn).await?;
+            if let Some(record) = record {
+                let mut active_record: record::ActiveModel = record.into();
+                active_record.has_links = Set(true);
+                active_record.update(txn).await?;
+            }
+        }
+
+        Ok(added_count)
+    }
+
     async fn delete(&self, txn: &DatabaseTransaction, id: String) -> Result<bool, DbErr> {
         let result = RecordEntity::delete_by_id(id).exec(txn).await?;
         Ok(result.rows_affected > 0)
@@ -444,5 +499,15 @@ impl RecordRepository for RecordRepo {
         }
 
         Ok(result)
+    }
+
+    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        let records = RecordEntity::find()
+            .select_only()
+            .column(record::Column::Id)
+            .all(db)
+            .await?;
+
+        Ok(records.into_iter().map(|r| r.id).collect())
     }
 }

@@ -1,8 +1,8 @@
 use crate::{
     common::error::AppError,
     domains::luna::dto::{
-        CreateIdolDto, EntityCountDto, IdolDto, PaginatedResponse, PaginationQuery, SearchIdolDto,
-        UpdateIdolDto,
+        CreateIdolDto, EntityCountDto, IdolDto, IdolWithoutImageDto, PaginatedResponse,
+        PaginationQuery, SearchIdolDto, UpdateIdolDto,
     },
 };
 
@@ -45,4 +45,10 @@ pub trait IdolServiceTrait: Send + Sync {
 
     /// Gets record counts grouped by idols.
     async fn get_idol_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError>;
+
+    /// Gets idols that don't have any images in the media directory.
+    async fn get_idols_without_images(
+        &self,
+        assets_private_path: &str,
+    ) -> Result<Vec<IdolWithoutImageDto>, AppError>;
 }

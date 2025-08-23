@@ -77,3 +77,11 @@ pub struct CreateIdolParticipationDto {
     pub idol_id: i64,
     pub manual: bool,
 }
+
+/// DTO for idols without images
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct IdolWithoutImageDto {
+    pub id: i64,
+    pub name: String,
+    pub link: String,
+}

@@ -1,12 +1,12 @@
 use crate::{
     common::{app_state::AppState, dto::RestApiResponse, error::AppError, jwt::Claims},
     domains::luna::dto::{
-        CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, RecordSlimDto,
-        SearchRecordDto, UpdateRecordDto,
+        CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
+        RecordSlimDto, SearchRecordDto, UpdateRecordDto,
     },
 };
 
-use axum::{extract::State, response::IntoResponse, Extension, Json};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 
 use validator::Validate as _;
 
@@ -85,27 +85,30 @@ pub async fn create_record(
 #[utoipa::path(
     put,
     path = "/cards/records/{id}",
-    request_body = UpdateRecordDto,
-    responses((status = 200, description = "Record updated", body = RecordDto)),
+    request_body = Vec<CreateLinkDto>,
+    responses(
+        (status = 200, description = "No new links added", body = i32),
+        (status = 201, description = "New links added successfully", body = i32)
+    ),
     tag = "Records"
 )]
 pub async fn update_record(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Json(body): Json<UpdateRecordDto>,
+    Json(body): Json<Vec<CreateLinkDto>>,
 ) -> Result<impl IntoResponse, AppError> {
-    body.validate().map_err(|err| {
-        tracing::error!("Validation error: {err}");
-        AppError::ValidationError(format!("Invalid input: {err}"))
-    })?;
-
-    let record = state
+    let added_count = state
         .luna_service
         .record_service()
-        .update_record(&id, body)
+        .update_record_links(&id, body)
         .await?;
-    Ok(RestApiResponse::success(record))
+
+    if added_count > 0 {
+        Ok((StatusCode::CREATED, RestApiResponse::success(added_count)))
+    } else {
+        Ok((StatusCode::OK, RestApiResponse::success(added_count)))
+    }
 }
 
 #[utoipa::path(
@@ -127,6 +130,27 @@ pub async fn patch_record(
         .update_record(&id, body)
         .await?;
     Ok(RestApiResponse::success(record))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/cards/records/{id}/links",
+    request_body = Vec<CreateLinkDto>,
+    responses((status = 200, description = "Record links updated", body = i32)),
+    tag = "Records"
+)]
+pub async fn update_record_links(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<Vec<CreateLinkDto>>,
+) -> Result<impl IntoResponse, AppError> {
+    let added_count = state
+        .luna_service
+        .record_service()
+        .update_record_links(&id, body)
+        .await?;
+    Ok(RestApiResponse::success(added_count))
 }
 
 #[utoipa::path(
@@ -338,4 +362,37 @@ pub async fn get_all_record_slim(
         .get_all_record_slim()
         .await?;
     Ok(RestApiResponse::success(records))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/records/ids",
+    params(
+        ("limit" = Option<i64>, Query, description = "Limit for pagination (optional)"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination (optional)")
+    ),
+    responses((status = 200, description = "Get all record IDs with optional pagination", body = Vec<String>)),
+    tag = "Records"
+)]
+pub async fn get_all_record_ids(
+    State(state): State<AppState>,
+    axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let all_ids = state
+        .luna_service
+        .record_service()
+        .get_all_record_ids()
+        .await?;
+
+    // Handle pagination - if no pagination params provided, return all IDs
+    if pagination.limit.is_none() && pagination.offset.is_none() {
+        Ok(RestApiResponse::success(all_ids))
+    } else {
+        let limit = pagination.limit.unwrap_or(10) as usize;
+        let offset = pagination.offset.unwrap_or(0) as usize;
+
+        let paginated_ids: Vec<String> = all_ids.into_iter().skip(offset).take(limit).collect();
+
+        Ok(RestApiResponse::success(paginated_ids))
+    }
 }

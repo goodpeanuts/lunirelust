@@ -1,6 +1,6 @@
 use crate::common::{config::Config, error::AppError};
 use crate::domains::luna::domain::FileServiceTrait;
-use crate::domains::luna::dto::{MediaAccessDto, UploadImageDto};
+use crate::domains::luna::dto::{MediaAccessDto, MediaType, UploadImageDto};
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -27,12 +27,12 @@ impl FileService {
 impl FileServiceTrait for FileService {
     /// Serves a media file based on the provided media access parameters
     async fn serve_media_file(&self, media_dto: MediaAccessDto) -> Result<Response, AppError> {
-        // Build the file path: assets_private_path/id/filename
+        // Build the file directory path: assets_private_path/records/images/id/
         let file_dir = Path::new(&self.config.assets_private_path)
             .join("images")
+            .join(media_dto.media_type.get_sub_dir_name())
             .join(&media_dto.id);
-        let filename = media_dto.get_filename();
-        let file_path = file_dir.join(&filename);
+        let filename_base = media_dto.get_filename();
 
         // Check if the directory exists
         if !file_dir.exists() {
@@ -43,13 +43,26 @@ impl FileServiceTrait for FileService {
             )));
         }
 
-        // Check if the file exists
-        if !file_path.exists() {
-            tracing::error!("File not found: {}", file_path.display());
-            return Err(AppError::NotFound(format!(
-                "Media file '{filename}' not found"
-            )));
+        // Try to find the file with different extensions
+        let supported_extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+        let mut file_path = None;
+        let mut found_extension = None;
+
+        for extension in &supported_extensions {
+            let candidate_path = file_dir.join(format!("{filename_base}.{extension}"));
+            if candidate_path.exists() {
+                file_path = Some(candidate_path);
+                found_extension = Some(extension);
+                break;
+            }
         }
+
+        let file_path = file_path.ok_or_else(|| {
+            tracing::error!("No supported image file found for: {}", filename_base);
+            AppError::NotFound(format!(
+                "Media file '{filename_base}' not found with any supported extension"
+            ))
+        })?;
 
         // Read the file content
         let file_content = fs::read(&file_path).await.map_err(|err| {
@@ -57,8 +70,8 @@ impl FileServiceTrait for FileService {
             AppError::InternalError
         })?;
 
-        // Determine content type based on file extension
-        let content_type = Self::get_content_type_from_filename(&filename);
+        // Determine content type based on the found extension
+        let content_type = Self::get_content_type_from_filename(found_extension.unwrap_or(&""));
 
         // Create the response with cache headers
         let response = Response::builder()
@@ -79,10 +92,15 @@ impl FileServiceTrait for FileService {
         Ok(response)
     }
 
-    async fn upload_images(&self, upload_dto: UploadImageDto) -> Result<usize, AppError> {
-        // Build the target directory path: assets_private_path/images/id/
+    async fn upload_images(
+        &self,
+        ty: MediaType,
+        upload_dto: UploadImageDto,
+    ) -> Result<usize, AppError> {
+        // Build the target directory path: assets_private_path/records/images/id/
         let target_dir = Path::new(&self.config.assets_private_path)
             .join("images")
+            .join(ty.get_sub_dir_name())
             .join(&upload_dto.id);
 
         // Check if directory exists, create if not
@@ -126,9 +144,8 @@ impl FileServiceTrait for FileService {
 
 impl FileService {
     /// Get content type based on file extension
-    fn get_content_type_from_filename(filename: &str) -> &'static str {
-        let extension = filename.split('.').next_back().unwrap_or("").to_lowercase();
-        match extension.as_str() {
+    fn get_content_type_from_filename(ext: &str) -> &'static str {
+        match ext {
             "jpg" | "jpeg" => "image/jpeg",
             "png" => "image/png",
             "gif" => "image/gif",

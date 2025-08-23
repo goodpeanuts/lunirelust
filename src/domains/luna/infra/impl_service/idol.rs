@@ -3,15 +3,17 @@ use crate::{
     domains::luna::{
         domain::{IdolRepository, IdolServiceTrait},
         dto::{
-            CreateIdolDto, EntityCountDto, IdolDto, PaginatedResponse, PaginationQuery,
-            SearchIdolDto, UpdateIdolDto,
+            CreateIdolDto, EntityCountDto, IdolDto, IdolWithoutImageDto, PaginatedResponse,
+            PaginationQuery, SearchIdolDto, UpdateIdolDto,
         },
         infra::IdolRepo,
     },
 };
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, TransactionTrait as _};
+use std::path::Path;
 use std::sync::Arc;
+use tokio::fs;
 
 /// Service struct for handling idol-related operations.
 #[derive(Clone)]
@@ -156,5 +158,75 @@ impl IdolServiceTrait for IdolService {
             .get_idol_record_counts(&self.db)
             .await
             .map_err(AppError::DatabaseError)
+    }
+
+    /// Gets idols that don't have any images in the media directory.
+    async fn get_idols_without_images(
+        &self,
+        assets_private_path: &str,
+    ) -> Result<Vec<IdolWithoutImageDto>, AppError> {
+        // Get all idols from database
+        let all_idols = self
+            .repo
+            .find_all(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        let mut idols_without_images = Vec::new();
+
+        for idol in all_idols {
+            if idol.id <= 0 {
+                continue; // Skip invalid idols
+            }
+
+            // Check if the media directory exists and has images
+            let idol_media_dir = Path::new(assets_private_path)
+                .join("records")
+                .join("images")
+                .join(&idol.name);
+
+            let has_images = if idol_media_dir.exists() {
+                // Check if directory has any image files
+                match fs::read_dir(&idol_media_dir).await {
+                    Ok(mut entries) => {
+                        let mut has_any_images = false;
+                        while let Ok(Some(entry)) = entries.next_entry().await {
+                            if let Some(file_name) = entry.file_name().to_str() {
+                                let file_path = entry.path();
+                                if file_path.is_file() {
+                                    // Check if it's an image file
+                                    let extension = file_name
+                                        .split('.')
+                                        .next_back()
+                                        .unwrap_or("")
+                                        .to_lowercase();
+                                    if matches!(
+                                        extension.as_str(),
+                                        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
+                                    ) {
+                                        has_any_images = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        has_any_images
+                    }
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+
+            if !has_images {
+                idols_without_images.push(IdolWithoutImageDto {
+                    id: idol.id,
+                    name: idol.name,
+                    link: idol.link,
+                });
+            }
+        }
+
+        Ok(idols_without_images)
     }
 }

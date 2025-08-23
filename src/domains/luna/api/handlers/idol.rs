@@ -1,6 +1,8 @@
 use crate::{
     common::{app_state::AppState, dto::RestApiResponse, error::AppError, jwt::Claims},
-    domains::luna::dto::{CreateIdolDto, IdolDto, PaginationQuery, SearchIdolDto, UpdateIdolDto},
+    domains::luna::dto::{
+        CreateIdolDto, IdolDto, IdolWithoutImageDto, PaginationQuery, SearchIdolDto, UpdateIdolDto,
+    },
 };
 
 use axum::{extract::State, response::IntoResponse, Extension, Json};
@@ -128,4 +130,25 @@ pub async fn delete_idol(
 ) -> Result<impl IntoResponse, AppError> {
     let message = state.luna_service.idol_service().delete_idol(id).await?;
     Ok(RestApiResponse::success_with_message(message, ()))
+}
+
+/// Get idols without images
+///
+/// This endpoint returns a list of idols that don't have any images
+/// in their media directory.
+#[utoipa::path(
+    get,
+    path = "/cards/idols/without-images",
+    responses((status = 200, description = "Get idols without images", body = Vec<IdolWithoutImageDto>)),
+    tag = "Idols"
+)]
+pub async fn get_idols_without_images(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let idols_without_images = state
+        .luna_service
+        .idol_service()
+        .get_idols_without_images(&state.config.assets_private_path)
+        .await?;
+    Ok(RestApiResponse::success(idols_without_images))
 }

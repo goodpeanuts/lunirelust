@@ -20,6 +20,7 @@ use super::handlers::{
     __path_delete_record,
     __path_delete_series,
     __path_delete_studio,
+    __path_get_all_record_ids,
     __path_get_all_record_slim,
     __path_get_director_by_id,
     // Auto-generated paths for count handlers
@@ -31,6 +32,7 @@ use super::handlers::{
     __path_get_idol_by_id,
     __path_get_idol_records_count,
     __path_get_idols,
+    __path_get_idols_without_images,
     __path_get_label_by_id,
     __path_get_label_records_count,
     __path_get_labels,
@@ -56,14 +58,19 @@ use super::handlers::{
     __path_patch_record,
     __path_patch_series,
     __path_patch_studio,
+    __path_serve_idol_media_by_id,
+    __path_serve_idol_media_by_name,
     __path_serve_media,
     __path_update_director,
     __path_update_genre,
     __path_update_idol,
     __path_update_label,
     __path_update_record,
+    __path_update_record_links,
     __path_update_series,
     __path_update_studio,
+    __path_upload_idol_images_by_id,
+    __path_upload_idol_images_by_name,
     __path_upload_images,
     create_director,
     create_genre,
@@ -80,6 +87,7 @@ use super::handlers::{
     delete_series,
     delete_studio,
     // Record handlers additional
+    get_all_record_ids,
     get_all_record_slim,
     get_director_by_id,
     // Count handlers
@@ -91,6 +99,7 @@ use super::handlers::{
     get_idol_by_id,
     get_idol_records_count,
     get_idols,
+    get_idols_without_images,
     get_label_by_id,
     get_label_records_count,
     get_labels,
@@ -116,6 +125,8 @@ use super::handlers::{
     patch_record,
     patch_series,
     patch_studio,
+    serve_idol_media_by_id,
+    serve_idol_media_by_name,
     // Media handlers
     serve_media,
     serve_media_with_number,
@@ -124,8 +135,11 @@ use super::handlers::{
     update_idol,
     update_label,
     update_record,
+    update_record_links,
     update_series,
     update_studio,
+    upload_idol_images_by_id,
+    upload_idol_images_by_name,
     upload_images,
 };
 
@@ -200,6 +214,7 @@ use utoipa::{
         create_record,
         update_record,
         patch_record,
+        update_record_links,
         delete_record,
         // Count endpoints
         get_director_records_count,
@@ -215,10 +230,16 @@ use utoipa::{
         get_records_by_series,
         get_records_by_genre,
         get_records_by_idol,
+        get_all_record_ids,
         get_all_record_slim,
+        get_idols_without_images,
         // media
         serve_media,
+        serve_idol_media_by_id,
+        serve_idol_media_by_name,
         upload_images,
+        upload_idol_images_by_id,
+        upload_idol_images_by_name,
     ),
     components(schemas(
         DirectorDto, CreateDirectorDto, UpdateDirectorDto,
@@ -307,6 +328,7 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/series/{id}", delete(delete_series))
         // Idol routes
         .route("/idols", get(get_idols))
+        .route("/idols/without-images", get(get_idols_without_images))
         .route("/idols", post(create_idol))
         .route("/idols/{id}", get(get_idol_by_id))
         .route("/idols/{id}", put(update_idol))
@@ -318,7 +340,9 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/{id}", get(get_record_by_id))
         .route("/records/{id}", put(update_record))
         .route("/records/{id}", patch(patch_record))
+        .route("/records/{id}/links", patch(update_record_links))
         .route("/records/{id}", delete(delete_record))
+        .route("/records/ids", get(get_all_record_ids))
         .route("/records/slim", get(get_all_record_slim))
         // Records by entity endpoints
         .route("/director/{id}/records", get(get_records_by_director))
@@ -338,4 +362,12 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/media/{id}", get(serve_media))
         .route("/media/{id}/{n}", get(serve_media_with_number))
         .route("/media/upload", post(upload_images))
+        // Idol media routes
+        .route("/idol/media/{id}", get(serve_idol_media_by_id))
+        .route("/idol/media/name/{name}", get(serve_idol_media_by_name))
+        .route("/idol/media/upload/{id}", post(upload_idol_images_by_id))
+        .route(
+            "/idol/media/upload/name/{name}",
+            post(upload_idol_images_by_name),
+        )
 }

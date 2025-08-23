@@ -1,5 +1,5 @@
 use crate::common::error::AppError;
-use crate::domains::luna::dto::{MediaAccessDto, UploadImageDto};
+use crate::domains::luna::dto::{MediaAccessDto, MediaType, UploadImageDto};
 use async_trait::async_trait;
 use axum::response::Response;
 
@@ -12,5 +12,9 @@ pub trait FileServiceTrait: Send + Sync {
 
     /// Uploads image files to the specified directory
     /// Returns the number of successfully uploaded files
-    async fn upload_images(&self, upload_dto: UploadImageDto) -> Result<usize, AppError>;
+    async fn upload_images(
+        &self,
+        ty: MediaType,
+        upload_dto: UploadImageDto,
+    ) -> Result<usize, AppError>;
 }

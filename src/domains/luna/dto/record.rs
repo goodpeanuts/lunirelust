@@ -162,3 +162,8 @@ pub struct UpdateRecordDto {
     pub local_img_count: i32,
     pub modified_by: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+pub struct UpdateRecordLinksDto {
+    pub links: Vec<CreateLinkDto>,
+}

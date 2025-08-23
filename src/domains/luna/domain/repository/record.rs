@@ -1,6 +1,6 @@
 use crate::domains::luna::{
     domain::Record,
-    dto::{CreateRecordDto, SearchRecordDto, UpdateRecordDto},
+    dto::{CreateLinkDto, CreateRecordDto, SearchRecordDto, UpdateRecordDto},
 };
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
@@ -43,6 +43,18 @@ pub trait RecordRepository: Send + Sync {
     /// Deletes a record by their unique identifier within an active transaction.
     async fn delete(&self, txn: &DatabaseTransaction, id: String) -> Result<bool, DbErr>;
 
+    /// Update record links only - add new links that don't already exist
+    /// Returns the number of new links added
+    async fn update_record_links(
+        &self,
+        txn: &DatabaseTransaction,
+        record_id: String,
+        new_links: Vec<CreateLinkDto>,
+    ) -> Result<i32, DbErr>;
+
     /// Retrieves all record slim data from the database.
     async fn find_all_slim(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr>;
+
+    /// Retrieves all record IDs from the database.
+    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
 }

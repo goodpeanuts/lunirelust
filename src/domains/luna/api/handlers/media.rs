@@ -1,6 +1,6 @@
 use crate::common::dto::RestApiResponse;
 use crate::common::{app_state::AppState, error::AppError};
-use crate::domains::luna::dto::{ImageData, MediaAccessDto, UploadImageDto};
+use crate::domains::luna::dto::{ImageData, MediaAccessDto, MediaType, UploadImageDto};
 use axum::extract::Multipart;
 use axum::response::IntoResponse;
 use axum::{
@@ -48,7 +48,7 @@ pub async fn serve_media(
     Path(path_params): Path<MediaPathParams>,
     Query(query_params): Query<MediaQueryParams>,
 ) -> Result<Response, AppError> {
-    let media_dto = MediaAccessDto::new(path_params.id, query_params.n);
+    let media_dto = MediaAccessDto::new(path_params.id, MediaType::RecordImage, query_params.n);
 
     state
         .luna_service
@@ -63,7 +63,7 @@ pub async fn serve_media_with_number(
     State(state): State<AppState>,
     Path((id, n)): Path<(String, u32)>,
 ) -> Result<Response, AppError> {
-    let media_dto = MediaAccessDto::new(id, Some(n));
+    let media_dto = MediaAccessDto::new(id, MediaType::RecordImage, Some(n));
 
     state
         .luna_service
@@ -165,10 +165,301 @@ pub async fn upload_images(
     let uploaded_count = state
         .luna_service
         .file_service()
-        .upload_images(upload_dto)
+        .upload_images(MediaType::RecordImage, upload_dto)
         .await?;
 
     Ok(RestApiResponse::success(format!(
         "Successfully uploaded {uploaded_count} image(s)"
     )))
+}
+
+/// Serves idol media files by idol ID
+///
+/// This endpoint serves jpg images for idols based on the provided ID.
+/// It first checks if the idol exists in the database, then looks for image files
+/// in the directory named by the idol's name under the configured private assets directory.
+#[utoipa::path(
+    get,
+    path = "/records/media/idol_id/{idol_id}",
+    params(
+        ("idol_id" = i64, Path, description = "The unique identifier for the idol"),
+    ),
+    responses(
+        (status = 200, description = "Idol media file served successfully", content_type = "image/*"),
+        (status = 404, description = "Idol not found or no media file exists"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Media"
+)]
+pub async fn serve_idol_media_by_id(
+    State(state): State<AppState>,
+    Path(idol_id): Path<i64>,
+) -> Result<Response, AppError> {
+    // First check if the idol exists in the database
+    let idol = state
+        .luna_service
+        .idol_service()
+        .get_idol_by_id(idol_id)
+        .await?;
+
+    // Use the idol's name as the media ID
+    let media_dto = MediaAccessDto::new(idol.name, MediaType::IdolImage, None);
+
+    state
+        .luna_service
+        .file_service()
+        .serve_media_file(media_dto)
+        .await
+}
+
+/// Serves idol media files by idol name
+///
+/// This endpoint serves jpg images for idols based on the provided name.
+/// It first checks if the idol exists in the database, then looks for image files
+/// in the directory named by the idol's name under the configured private assets directory.
+#[utoipa::path(
+    get,
+    path = "/records/media/idol_str/{idol_name}",
+    params(
+        ("idol_name" = String, Path, description = "The name of the idol"),
+    ),
+    responses(
+        (status = 200, description = "Idol media file served successfully", content_type = "image/*"),
+        (status = 404, description = "Idol not found or no media file exists"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Media"
+)]
+pub async fn serve_idol_media_by_name(
+    State(state): State<AppState>,
+    Path(idol_name): Path<String>,
+) -> Result<Response, AppError> {
+    // First check if the idol exists in the database by searching by name
+    use crate::domains::luna::dto::SearchIdolDto;
+    let search_dto = SearchIdolDto {
+        id: None,
+        name: Some(idol_name.clone()),
+        link: None,
+        search: None,
+    };
+
+    let idols = state
+        .luna_service
+        .idol_service()
+        .get_idol_list(search_dto)
+        .await?;
+
+    if idols.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "Idol with name '{idol_name}' not found"
+        )));
+    }
+
+    // Use the idol's name as the media ID
+    let media_dto = MediaAccessDto::new(idol_name, MediaType::IdolImage, None);
+
+    state
+        .luna_service
+        .file_service()
+        .serve_media_file(media_dto)
+        .await
+}
+
+/// Upload idol images by idol ID
+///
+/// This endpoint accepts multipart form data with image files and uploads them
+/// to the private assets directory under the subdirectory named by the idol's name.
+/// Only uploads files that don't already exist (no overwriting).
+#[utoipa::path(
+    post,
+    path = "/records/media/idol_id/{idol_id}/upload",
+    params(
+        ("idol_id" = i64, Path, description = "The unique identifier for the idol"),
+    ),
+    request_body(
+        content = String,
+        description = "Multipart form data with image files",
+        content_type = "multipart/form-data"
+    ),
+    responses(
+        (status = 200, description = "Images already exist", body = String),
+        (status = 400, description = "Bad request - invalid data or idol ID not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Media"
+)]
+pub async fn upload_idol_images_by_id(
+    State(state): State<AppState>,
+    Path(idol_id): Path<i64>,
+    mut multipart: Multipart,
+) -> Result<impl IntoResponse, AppError> {
+    // Check if the idol exists in the database
+    let idol = state
+        .luna_service
+        .idol_service()
+        .get_idol_by_id(idol_id)
+        .await?;
+
+    let mut images: Vec<ImageData> = Vec::new();
+
+    // Parse multipart form data
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        AppError::ValidationError(format!("Failed to parse multipart form data: {e}"))
+    })? {
+        let field_name = field.name().unwrap_or("").to_owned();
+
+        if field_name.starts_with("file") {
+            let content_type = field
+                .content_type()
+                .unwrap_or("application/octet-stream")
+                .to_owned();
+            let data = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::ValidationError(format!("Failed to read file data: {e}")))?;
+
+            // Use the idol's name as the filename (without extension)
+            images.push(ImageData {
+                name: idol.name.clone(),
+                mime: content_type,
+                bytes: data.to_vec(),
+            });
+        }
+    }
+
+    if images.is_empty() {
+        return Err(AppError::ValidationError(
+            "No image files provided".to_owned(),
+        ));
+    }
+
+    let upload_dto = UploadImageDto {
+        id: idol.name,
+        files: images,
+    };
+
+    let uploaded_count = state
+        .luna_service
+        .file_service()
+        .upload_images(MediaType::IdolImage, upload_dto)
+        .await?;
+
+    if uploaded_count == 0 {
+        Ok(RestApiResponse::success_with_message(
+            "Images already exist".to_owned(),
+            "No new images uploaded".to_owned(),
+        ))
+    } else {
+        Ok(RestApiResponse::success_with_message(
+            format!("Successfully uploaded {uploaded_count} image(s)"),
+            format!("Uploaded {uploaded_count} images"),
+        ))
+    }
+}
+
+/// Upload idol images by idol name
+///
+/// This endpoint accepts multipart form data with image files and uploads them
+/// to the private assets directory under the subdirectory named by the idol's name.
+/// Only uploads files that don't already exist (no overwriting).
+#[utoipa::path(
+    post,
+    path = "/records/media/idol_str/{idol_name}/upload",
+    params(
+        ("idol_name" = String, Path, description = "The name of the idol"),
+    ),
+    request_body(
+        content = String,
+        description = "Multipart form data with image files",
+        content_type = "multipart/form-data"
+    ),
+    responses(
+        (status = 200, description = "Images already exist", body = String),
+        (status = 400, description = "Bad request - invalid data or idol name not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Media"
+)]
+pub async fn upload_idol_images_by_name(
+    State(state): State<AppState>,
+    Path(idol_name): Path<String>,
+    mut multipart: Multipart,
+) -> Result<impl IntoResponse, AppError> {
+    // Check if the idol exists in the database by searching by name
+    use crate::domains::luna::dto::SearchIdolDto;
+    let search_dto = SearchIdolDto {
+        id: None,
+        name: Some(idol_name.clone()),
+        link: None,
+        search: None,
+    };
+
+    let idols = state
+        .luna_service
+        .idol_service()
+        .get_idol_list(search_dto)
+        .await?;
+
+    if idols.is_empty() {
+        return Err(AppError::ValidationError(format!(
+            "Idol with name '{idol_name}' not found"
+        )));
+    }
+
+    let mut images: Vec<ImageData> = Vec::new();
+
+    // Parse multipart form data
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        AppError::ValidationError(format!("Failed to parse multipart form data: {e}"))
+    })? {
+        let field_name = field.name().unwrap_or("").to_owned();
+
+        if field_name.starts_with("file") {
+            // Use the idol's name as the filename (without extension)
+            let content_type = field
+                .content_type()
+                .unwrap_or("application/octet-stream")
+                .to_owned();
+            let data = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::ValidationError(format!("Failed to read file data: {e}")))?;
+
+            // Use the idol's name as the filename (without extension)
+            images.push(ImageData {
+                name: idol_name.clone(),
+                mime: content_type,
+                bytes: data.to_vec(),
+            });
+        }
+    }
+
+    if images.is_empty() {
+        return Err(AppError::ValidationError(
+            "No image files provided".to_owned(),
+        ));
+    }
+
+    let upload_dto = UploadImageDto {
+        id: idol_name,
+        files: images,
+    };
+
+    let uploaded_count = state
+        .luna_service
+        .file_service()
+        .upload_images(MediaType::IdolImage, upload_dto)
+        .await?;
+
+    if uploaded_count == 0 {
+        Ok(RestApiResponse::success_with_message(
+            "Images already exist".to_owned(),
+            "No new images uploaded".to_owned(),
+        ))
+    } else {
+        Ok(RestApiResponse::success_with_message(
+            format!("Successfully uploaded {uploaded_count} image(s)"),
+            format!("Uploaded {uploaded_count} images"),
+        ))
+    }
 }

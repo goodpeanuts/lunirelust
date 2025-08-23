@@ -3,8 +3,8 @@ use crate::{
     domains::luna::{
         domain::{Record, RecordRepository, RecordServiceTrait},
         dto::{
-            CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto, RecordSlimDto,
-            SearchRecordDto, UpdateRecordDto,
+            CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
+            RecordSlimDto, SearchRecordDto, UpdateRecordDto,
         },
         infra::RecordRepo,
     },
@@ -106,6 +106,16 @@ impl RecordServiceTrait for RecordService {
         Ok(records.into_iter().map(RecordDto::from).collect())
     }
 
+    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError> {
+        let ids = self
+            .repo
+            .find_all_ids(&self.db)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(ids)
+    }
+
     async fn get_all_record_slim(&self) -> Result<Vec<RecordSlimDto>, AppError> {
         let records = self
             .repo
@@ -148,6 +158,23 @@ impl RecordServiceTrait for RecordService {
         updated_record
             .map(RecordDto::from)
             .ok_or_else(|| AppError::NotFound("Record not found".into()))
+    }
+
+    async fn update_record_links(
+        &self,
+        id: &str,
+        new_links: Vec<CreateLinkDto>,
+    ) -> Result<i32, AppError> {
+        let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
+
+        let result = self
+            .repo
+            .update_record_links(&txn, id.to_owned(), new_links)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        txn.commit().await.map_err(AppError::DatabaseError)?;
+        Ok(result)
     }
 
     async fn delete_record(&self, id: &str) -> Result<String, AppError> {
