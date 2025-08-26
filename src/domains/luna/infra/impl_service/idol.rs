@@ -181,8 +181,8 @@ impl IdolServiceTrait for IdolService {
 
             // Check if the media directory exists and has images
             let idol_media_dir = Path::new(assets_private_path)
-                .join("records")
                 .join("images")
+                .join("idol")
                 .join(&idol.name);
 
             let has_images = if idol_media_dir.exists() {
