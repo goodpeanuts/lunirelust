@@ -363,11 +363,14 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/media/{id}/{n}", get(serve_media_with_number))
         .route("/media/upload", post(upload_images))
         // Idol media routes
-        .route("/idol/media/{id}", get(serve_idol_media_by_id))
-        .route("/idol/media/name/{name}", get(serve_idol_media_by_name))
-        .route("/idol/media/upload/{id}", post(upload_idol_images_by_id))
+        .route("/media/idol/id/{id}", get(serve_idol_media_by_id))
+        .route("/media/idol/name/{name}", get(serve_idol_media_by_name))
         .route(
-            "/idol/media/upload/name/{name}",
+            "/media/upload_idol_by_id/{id}",
+            post(upload_idol_images_by_id),
+        )
+        .route(
+            "/media/upload_idol_by_name/{name}",
             post(upload_idol_images_by_name),
         )
 }

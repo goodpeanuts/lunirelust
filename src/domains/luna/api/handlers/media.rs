@@ -180,7 +180,7 @@ pub async fn upload_images(
 /// in the directory named by the idol's name under the configured private assets directory.
 #[utoipa::path(
     get,
-    path = "/records/media/idol_id/{idol_id}",
+    path = "/records/media/idol/id/{idol_id}",
     params(
         ("idol_id" = i64, Path, description = "The unique identifier for the idol"),
     ),
@@ -219,7 +219,7 @@ pub async fn serve_idol_media_by_id(
 /// in the directory named by the idol's name under the configured private assets directory.
 #[utoipa::path(
     get,
-    path = "/records/media/idol_str/{idol_name}",
+    path = "/records/media/idol/name/{idol_name}",
     params(
         ("idol_name" = String, Path, description = "The name of the idol"),
     ),
@@ -272,7 +272,7 @@ pub async fn serve_idol_media_by_name(
 /// Only uploads files that don't already exist (no overwriting).
 #[utoipa::path(
     post,
-    path = "/records/media/idol_id/{idol_id}/upload",
+    path = "/records/media/upload_idol_by_id/{idol_id}/",
     params(
         ("idol_id" = i64, Path, description = "The unique identifier for the idol"),
     ),
@@ -364,7 +364,7 @@ pub async fn upload_idol_images_by_id(
 /// Only uploads files that don't already exist (no overwriting).
 #[utoipa::path(
     post,
-    path = "/records/media/idol_str/{idol_name}/upload",
+    path = "/records/media/upload_idol_by_name/{idol_name}",
     params(
         ("idol_name" = String, Path, description = "The name of the idol"),
     ),
