@@ -134,7 +134,7 @@ pub async fn patch_record(
 
 #[utoipa::path(
     patch,
-    path = "/cards/records/{id}/links",
+    path = "/cards/records/links/{id}",
     request_body = Vec<CreateLinkDto>,
     responses((status = 200, description = "Record links updated", body = i32)),
     tag = "Records"

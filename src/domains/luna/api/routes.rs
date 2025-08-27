@@ -340,7 +340,7 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/{id}", get(get_record_by_id))
         .route("/records/{id}", put(update_record))
         .route("/records/{id}", patch(patch_record))
-        .route("/records/{id}/links", patch(update_record_links))
+        .route("/records/links/{id}", patch(update_record_links))
         .route("/records/{id}", delete(delete_record))
         .route("/records/ids", get(get_all_record_ids))
         .route("/records/slim", get(get_all_record_slim))
