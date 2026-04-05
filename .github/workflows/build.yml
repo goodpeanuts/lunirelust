@@ -14,16 +14,11 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          toolchain: 1.92
       - name: Run check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all-features
+        run: cargo check --all-features
 
   build:
     runs-on: ${{ matrix.os }}
@@ -67,11 +62,14 @@ jobs:
       run: echo "${{ matrix.TARGET }}"
 
     - uses: actions/checkout@master
-    - uses: actions-rs/toolchain@v1.0.1
+    - uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: stable
-        target: ${{ matrix.TARGET }}
-        override: true
+        toolchain: 1.92
+        targets: ${{ matrix.TARGET }}
+
+    - name: Install cross
+      if: matrix.USE_CROSS == true
+      run: cargo install cross
 
     # Install musl tools for Linux musl targets
     - name: Install musl tools
@@ -82,33 +80,19 @@ jobs:
 
     - name: Run build (with cross)
       if: matrix.USE_CROSS == true
-      uses: actions-rs/cargo@v1
-      with:
-        use-cross: true
-        command: build
-        args: --verbose --release --target=${{ matrix.TARGET }}
+      run: cross build --verbose --release --target=${{ matrix.TARGET }}
 
     - name: Run build (without cross)
       if: matrix.USE_CROSS == false
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --verbose --release --target=${{ matrix.TARGET }}
+      run: cargo build --verbose --release --target=${{ matrix.TARGET }}
 
     - name: Build migration tool (with cross)
       if: matrix.USE_CROSS == true
-      uses: actions-rs/cargo@v1
-      with:
-        use-cross: true
-        command: build
-        args: --verbose --release --target=${{ matrix.TARGET }} -p migration
+      run: cross build --verbose --release --target=${{ matrix.TARGET }} -p migration
 
     - name: Build migration tool (without cross)
       if: matrix.USE_CROSS == false
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --verbose --release --target=${{ matrix.TARGET }} -p migration
+      run: cargo build --verbose --release --target=${{ matrix.TARGET }} -p migration
 
     - name: Upload main artifact
       uses: actions/upload-artifact@v4

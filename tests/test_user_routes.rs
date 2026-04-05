@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use axum::http::{Method, StatusCode};
 
 use lunirelust::{
