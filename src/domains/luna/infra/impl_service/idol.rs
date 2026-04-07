@@ -1,5 +1,5 @@
 use crate::{
-    common::error::AppError,
+    common::{config::Config, error::AppError},
     domains::luna::{
         domain::{IdolRepository, IdolServiceTrait},
         dto::{
@@ -20,14 +20,16 @@ use tokio::fs;
 pub struct IdolService {
     db: DatabaseConnection,
     repo: Arc<dyn IdolRepository + Send + Sync>,
+    config: Config,
 }
 
 #[async_trait]
 impl IdolServiceTrait for IdolService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn IdolServiceTrait> {
+    fn create_service(db: DatabaseConnection, config: Config) -> Arc<dyn IdolServiceTrait> {
         Arc::new(Self {
             db: db.clone(),
             repo: Arc::new(IdolRepo),
+            config,
         })
     }
 
@@ -57,40 +59,17 @@ impl IdolServiceTrait for IdolService {
         search_dto: SearchIdolDto,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<IdolDto>, AppError> {
-        let idols = self
+        let paginated = self
             .repo
-            .find_list(&self.db, search_dto)
+            .find_list_paginated(&self.db, search_dto, pagination)
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(1000) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = idols.len();
-        let paginated_idols: Vec<IdolDto> = idols
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(IdolDto::from)
-            .collect();
-
         Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_idols,
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(IdolDto::from).collect(),
         })
     }
 
@@ -200,10 +179,7 @@ impl IdolServiceTrait for IdolService {
                                         .next_back()
                                         .unwrap_or("")
                                         .to_lowercase();
-                                    if matches!(
-                                        extension.as_str(),
-                                        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
-                                    ) {
+                                    if self.config.asset_allowed_extensions.contains(&extension) {
                                         has_any_images = true;
                                         break;
                                     }

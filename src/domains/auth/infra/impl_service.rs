@@ -46,13 +46,15 @@ impl AuthServiceTrait for AuthService {
     async fn create_user_auth(&self, register_dto: RegisterDto) -> Result<(), AppError> {
         let tx = self.db.begin().await?;
 
+        let username = register_dto.username.clone();
+
         let user_dto = self
             .user_service
             .create_user(
                 CreateUserMultipartDto {
                     username: register_dto.username,
                     email: register_dto.email,
-                    modified_by: "system".to_owned(), // Or get from authenticated user
+                    modified_by: username,
                     profile_picture: None,
                 },
                 None,

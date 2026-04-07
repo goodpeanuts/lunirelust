@@ -5,6 +5,22 @@ use std::env;
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// Default page size for all paginated list endpoints.
+/// Used when no `limit` query parameter is provided.
+pub const DEFAULT_PAGE_SIZE: u64 = 20;
+
+/// Default maximum file upload size (50 MB).
+pub const DEFAULT_MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
+
+/// Database connection/acquire timeout in seconds.
+const DB_CONNECT_TIMEOUT_SECS: u64 = 30;
+
+/// Database idle timeout in seconds.
+const DB_IDLE_TIMEOUT_SECS: u64 = 600;
+
+/// Database max lifetime in seconds.
+const DB_MAX_LIFETIME_SECS: u64 = 1800;
+
 /// Config is a struct that holds the configuration for the application.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -22,6 +38,7 @@ pub struct Config {
     pub assets_private_url: String,
 
     pub asset_allowed_extensions_pattern: Regex,
+    pub asset_allowed_extensions: Vec<String>,
     pub asset_max_size: usize,
 
     pub cors_origins: Vec<String>,
@@ -35,6 +52,9 @@ impl Config {
         dotenvy::dotenv().ok();
 
         let ext_val = env::var("ASSET_ALLOWED_EXTENSIONS")?;
+
+        let asset_allowed_extensions: Vec<String> =
+            ext_val.split('|').map(|s| s.to_lowercase()).collect();
 
         Ok(Self {
             database_url: env::var("DATABASE_URL")?,
@@ -62,8 +82,10 @@ impl Config {
                         .expect("Failed to compile default asset extensions regex")
                 }),
 
+            asset_allowed_extensions,
+
             asset_max_size: env::var("ASSET_MAX_SIZE")
-                .map(|s| s.parse::<usize>().unwrap_or(50 * 1024 * 1024))?, // Default to 50MB
+                .map(|s| s.parse::<usize>().unwrap_or(DEFAULT_MAX_FILE_SIZE))?,
 
             cors_origins: env::var("CORS_ORIGINS")
                 .map(|s| s.split(',').map(|o| o.trim().to_owned()).collect())
@@ -79,10 +101,10 @@ pub async fn setup_database(config: &Config) -> Result<DatabaseConnection, sea_o
     let mut opt = ConnectOptions::new(&config.database_url);
     opt.min_connections(config.database_min_connections)
         .max_connections(config.database_max_connections)
-        .connect_timeout(Duration::from_secs(30))
-        .acquire_timeout(Duration::from_secs(30))
-        .idle_timeout(Duration::from_secs(600))
-        .max_lifetime(Duration::from_secs(1800));
+        .connect_timeout(Duration::from_secs(DB_CONNECT_TIMEOUT_SECS))
+        .acquire_timeout(Duration::from_secs(DB_CONNECT_TIMEOUT_SECS))
+        .idle_timeout(Duration::from_secs(DB_IDLE_TIMEOUT_SECS))
+        .max_lifetime(Duration::from_secs(DB_MAX_LIFETIME_SECS));
     // .sqlx_logging(true)
     // .sqlx_logging_level(tracing::Level::INFO);
 

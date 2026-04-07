@@ -1,5 +1,5 @@
 use crate::{
-    common::error::AppError,
+    common::{config::Config, error::AppError},
     domains::luna::dto::{
         CreateIdolDto, EntityCountDto, IdolDto, IdolWithoutImageDto, PaginatedResponse,
         PaginationQuery, SearchIdolDto, UpdateIdolDto,
@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// Service trait for idol-related business logic operations.
 pub trait IdolServiceTrait: Send + Sync {
     /// Constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn IdolServiceTrait>
+    fn create_service(db: DatabaseConnection, config: Config) -> Arc<dyn IdolServiceTrait>
     where
         Self: Sized;
 

@@ -16,8 +16,8 @@ use std::sync::Arc;
 /// Service struct for handling genre-related operations.
 #[derive(Clone)]
 pub struct GenreService {
-    pub db: DatabaseConnection,
-    pub repo: Arc<dyn GenreRepository + Send + Sync>,
+    db: DatabaseConnection,
+    repo: Arc<dyn GenreRepository + Send + Sync>,
 }
 
 #[async_trait]

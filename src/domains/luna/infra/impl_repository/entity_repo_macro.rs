@@ -57,15 +57,21 @@ macro_rules! impl_named_entity_repo {
                     query = query.filter($entity_mod::Column::Id.eq(id));
                 }
                 if let Some(name) = search_dto.name.as_deref().filter(|s| !s.trim().is_empty()) {
-                    query = query.filter($entity_mod::Column::Name.like(format!("%{name}%")));
+                    query = query.filter($entity_mod::Column::Name.contains(name));
                 }
                 if let Some(link) = search_dto.link.as_deref().filter(|s| !s.trim().is_empty()) {
-                    query = query.filter($entity_mod::Column::Link.like(format!("%{link}%")));
+                    query = query.filter($entity_mod::Column::Link.contains(link));
                 }
                 let results = query.all(db).await?;
                 Ok(results.into_iter().map(<$domain>::from).collect())
             }
 
+            /// Finds entities with pagination using database-level `LIMIT`/`OFFSET`.
+            ///
+            /// **Note:** `next`/`previous` links in the response contain only `limit` and
+            /// `offset` parameters — search filter fields (`id`, `name`, `link`) from
+            /// `search_dto` are not preserved in the links. Route handlers should document
+            /// this or reconstruct filter params when building client-facing URLs.
             async fn find_list_paginated(
                 &self,
                 db: &sea_orm::DatabaseConnection,
@@ -77,13 +83,17 @@ macro_rules! impl_named_entity_repo {
                     query = query.filter($entity_mod::Column::Id.eq(id));
                 }
                 if let Some(name) = search_dto.name.as_deref().filter(|s| !s.trim().is_empty()) {
-                    query = query.filter($entity_mod::Column::Name.like(format!("%{name}%")));
+                    query = query.filter($entity_mod::Column::Name.contains(name));
                 }
                 if let Some(link) = search_dto.link.as_deref().filter(|s| !s.trim().is_empty()) {
-                    query = query.filter($entity_mod::Column::Link.like(format!("%{link}%")));
+                    query = query.filter($entity_mod::Column::Link.contains(link));
                 }
 
-                let page_size = pagination.limit.unwrap_or(20) as u64;
+                let page_size = pagination
+                    .limit
+                    .filter(|&l| l > 0)
+                    .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
+                    as u64;
                 let page_num = (pagination.offset.unwrap_or(0) / page_size as i64) as u64;
 
                 let paginator = query.paginate(db, page_size);
@@ -275,10 +285,10 @@ macro_rules! impl_named_entity_repo {
                     query = query.filter($entity_mod::Column::Id.eq(id));
                 }
                 if let Some(name) = search_dto.name.as_deref().filter(|s| !s.trim().is_empty()) {
-                    query = query.filter($entity_mod::Column::Name.like(format!("%{name}%")));
+                    query = query.filter($entity_mod::Column::Name.contains(name));
                 }
                 if let Some(link) = search_dto.link.as_deref().filter(|s| !s.trim().is_empty()) {
-                    query = query.filter($entity_mod::Column::Link.like(format!("%{link}%")));
+                    query = query.filter($entity_mod::Column::Link.contains(link));
                 }
                 let results = query.all(db).await?;
                 Ok(results.into_iter().map(<$domain>::from).collect())

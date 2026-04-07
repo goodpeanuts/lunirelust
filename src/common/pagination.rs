@@ -1,3 +1,4 @@
+use crate::common::config::DEFAULT_PAGE_SIZE;
 use crate::domains::luna::dto::{PaginatedResponse, PaginationQuery};
 
 /// Generic pagination helper for in-memory slices.
@@ -9,7 +10,10 @@ pub fn paginate<T, U>(
     pagination: &PaginationQuery,
     map_fn: impl Fn(T) -> U,
 ) -> PaginatedResponse<U> {
-    let limit = pagination.limit.unwrap_or(10) as usize;
+    let limit = pagination
+        .limit
+        .filter(|&l| l > 0)
+        .unwrap_or(DEFAULT_PAGE_SIZE as i64) as usize;
     let offset = pagination.offset.unwrap_or(0) as usize;
 
     let total_count = items.len();

@@ -1,11 +1,18 @@
 use crate::domains::luna::{
     domain::{Series, SeriesRepository},
-    dto::{CreateSeriesDto, EntityCountDto, SearchSeriesDto, UpdateSeriesDto},
+    dto::{
+        CreateSeriesDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchSeriesDto,
+        UpdateSeriesDto,
+    },
 };
 use crate::entities::{record, series, RecordEntity, SeriesEntity};
-use sea_orm::{ActiveModelTrait as _, ColumnTrait as _, EntityTrait as _, QueryFilter as _};
+use sea_orm::{
+    ActiveModelTrait as _, ColumnTrait as _, EntityTrait as _, PaginatorTrait as _,
+    QueryFilter as _,
+};
 
 impl_named_entity_repo!(
+    paginated;
     SeriesRepo,
     Series,
     series,

@@ -1,6 +1,9 @@
 use crate::domains::luna::{
     domain::Series,
-    dto::{CreateSeriesDto, EntityCountDto, SearchSeriesDto, UpdateSeriesDto},
+    dto::{
+        CreateSeriesDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchSeriesDto,
+        UpdateSeriesDto,
+    },
 };
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
@@ -20,6 +23,14 @@ pub trait SeriesRepository: Send + Sync {
         db: &DatabaseConnection,
         search_dto: SearchSeriesDto,
     ) -> Result<Vec<Series>, DbErr>;
+
+    /// Finds series list with pagination
+    async fn find_list_paginated(
+        &self,
+        db: &DatabaseConnection,
+        search_dto: SearchSeriesDto,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Series>, DbErr>;
 
     /// Creates a new series record within an active transaction.
     async fn create(

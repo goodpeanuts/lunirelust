@@ -74,4 +74,4 @@ jobs:
           ASSETS_PRIVATE_PATH: "assets/private"
           ASSETS_PRIVATE_URL: "/assets/private"
           ASSET_MAX_SIZE: "52428800"
-          ASSET_ALLOWED_EXTENSIONS: "jpg|jpeg|png|gif|webp|svg|mp4|mov|avi|wmv|flv|mkv|mp3|wav|ogg|opus|pdf|doc|docx|ppt|pptx|xls|xlsx|hwp|hwpx|txt|zip"
+          ASSET_ALLOWED_EXTENSIONS: "jpg|jpeg|png|gif|webp|bmp|svg|mp4|mov|avi|wmv|flv|mkv|mp3|wav|ogg|opus|pdf|doc|docx|ppt|pptx|xls|xlsx|hwp|hwpx|txt|zip"

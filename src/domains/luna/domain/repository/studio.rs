@@ -1,6 +1,9 @@
 use crate::domains::luna::{
     domain::Studio,
-    dto::{CreateStudioDto, EntityCountDto, SearchStudioDto, UpdateStudioDto},
+    dto::{
+        CreateStudioDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchStudioDto,
+        UpdateStudioDto,
+    },
 };
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
@@ -20,6 +23,14 @@ pub trait StudioRepository: Send + Sync {
         db: &DatabaseConnection,
         search_dto: SearchStudioDto,
     ) -> Result<Vec<Studio>, DbErr>;
+
+    /// Finds studio list with pagination
+    async fn find_list_paginated(
+        &self,
+        db: &DatabaseConnection,
+        search_dto: SearchStudioDto,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Studio>, DbErr>;
 
     /// Creates a new studio record within an active transaction.
     async fn create(

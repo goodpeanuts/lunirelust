@@ -39,7 +39,7 @@ impl LunaServiceTrait for LunaService {
             label_service: label::LabelService::create_service(db.clone()),
             studio_service: studio::StudioService::create_service(db.clone()),
             series_service: series::SeriesService::create_service(db.clone()),
-            idol_service: idol::IdolService::create_service(db.clone()),
+            idol_service: idol::IdolService::create_service(db.clone(), config.clone()),
             record_service: record::RecordService::create_service(db),
             file_service: Arc::new(file::FileService::new(config)),
         })

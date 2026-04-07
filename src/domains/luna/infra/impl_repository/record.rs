@@ -290,6 +290,99 @@ impl RecordRepo {
 
         Ok(records)
     }
+
+    /// Batch-load records with only basic fields + direct FK relations
+    /// (director/studio/label/series), skipping genres/idols/links.
+    async fn load_records_slim<C: ConnectionTrait>(
+        db: &C,
+        record_models: Vec<record::Model>,
+    ) -> Result<Vec<Record>, DbErr> {
+        if record_models.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Collect all foreign key IDs
+        let director_ids: Vec<i64> = record_models.iter().map(|m| m.director_id).collect();
+        let studio_ids: Vec<i64> = record_models.iter().map(|m| m.studio_id).collect();
+        let label_ids: Vec<i64> = record_models.iter().map(|m| m.label_id).collect();
+        let series_ids: Vec<i64> = record_models.iter().map(|m| m.series_id).collect();
+
+        // Batch load directors (query 1)
+        let directors: HashMap<i64, _> = DirectorEntity::find()
+            .filter(director::Column::Id.is_in(director_ids))
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|d| (d.id, d))
+            .collect();
+
+        // Batch load studios (query 2)
+        let studios: HashMap<i64, _> = StudioEntity::find()
+            .filter(studio::Column::Id.is_in(studio_ids))
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|s| (s.id, s))
+            .collect();
+
+        // Batch load labels (query 3)
+        let labels: HashMap<i64, _> = LabelEntity::find()
+            .filter(label::Column::Id.is_in(label_ids))
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|l| (l.id, l))
+            .collect();
+
+        // Batch load series (query 4)
+        let series_map: HashMap<i64, _> = SeriesEntity::find()
+            .filter(series::Column::Id.is_in(series_ids))
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|s| (s.id, s))
+            .collect();
+
+        // Assemble records — genres/idols/links left empty for slim mode
+        let mut records = Vec::with_capacity(record_models.len());
+        for record_model in record_models {
+            let director = directors
+                .get(&record_model.director_id)
+                .ok_or_else(|| DbErr::RecordNotFound("Director not found".to_owned()))?;
+            let studio = studios
+                .get(&record_model.studio_id)
+                .ok_or_else(|| DbErr::RecordNotFound("Studio not found".to_owned()))?;
+            let label = labels
+                .get(&record_model.label_id)
+                .ok_or_else(|| DbErr::RecordNotFound("Label not found".to_owned()))?;
+            let series = series_map
+                .get(&record_model.series_id)
+                .ok_or_else(|| DbErr::RecordNotFound("Series not found".to_owned()))?;
+
+            records.push(Record {
+                id: record_model.id,
+                title: record_model.title,
+                date: record_model.date,
+                duration: record_model.duration,
+                director: Director::from(director.clone()),
+                studio: Studio::from(studio.clone()),
+                label: Label::from(label.clone()),
+                series: Series::from(series.clone()),
+                genres: Vec::new(),
+                idols: Vec::new(),
+                has_links: record_model.has_links,
+                links: Vec::new(),
+                permission: record_model.permission,
+                local_img_count: record_model.local_img_count,
+                create_time: record_model.create_time,
+                update_time: record_model.update_time,
+                creator: record_model.creator,
+                modified_by: record_model.modified_by,
+            });
+        }
+
+        Ok(records)
+    }
 }
 
 #[async_trait]
@@ -551,7 +644,7 @@ impl RecordRepository for RecordRepo {
 
     async fn find_all_slim(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
         let record_models = RecordEntity::find().all(db).await?;
-        Self::load_records_batch(db, record_models).await
+        Self::load_records_slim(db, record_models).await
     }
 
     async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {

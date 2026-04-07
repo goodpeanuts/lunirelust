@@ -59,41 +59,17 @@ impl SeriesServiceTrait for SeriesService {
         search_dto: SearchSeriesDto,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<SeriesDto>, AppError> {
-        // Implementation similar to director service
-        let series = self
+        let paginated = self
             .repo
-            .find_list(&self.db, search_dto)
+            .find_list_paginated(&self.db, search_dto, pagination)
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(1000) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = series.len();
-        let paginated_series: Vec<SeriesDto> = series
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(SeriesDto::from)
-            .collect();
-
         Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_series,
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(SeriesDto::from).collect(),
         })
     }
 

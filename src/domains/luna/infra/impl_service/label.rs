@@ -16,8 +16,8 @@ use std::sync::Arc;
 /// Service struct for handling label-related operations.
 #[derive(Clone)]
 pub struct LabelService {
-    pub db: DatabaseConnection,
-    pub repo: Arc<dyn LabelRepository + Send + Sync>,
+    db: DatabaseConnection,
+    repo: Arc<dyn LabelRepository + Send + Sync>,
 }
 
 #[async_trait]

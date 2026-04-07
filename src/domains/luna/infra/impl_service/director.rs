@@ -16,8 +16,8 @@ use std::sync::Arc;
 /// Service struct for handling director-related operations.
 #[derive(Clone)]
 pub struct DirectorService {
-    pub db: DatabaseConnection,
-    pub repo: Arc<dyn DirectorRepository + Send + Sync>,
+    db: DatabaseConnection,
+    repo: Arc<dyn DirectorRepository + Send + Sync>,
 }
 
 #[async_trait]

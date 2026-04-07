@@ -3,7 +3,10 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
 
 use crate::domains::luna::{
     domain::Idol,
-    dto::{CreateIdolDto, EntityCountDto, SearchIdolDto, UpdateIdolDto},
+    dto::{
+        CreateIdolDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchIdolDto,
+        UpdateIdolDto,
+    },
 };
 
 #[async_trait]
@@ -21,6 +24,14 @@ pub trait IdolRepository: Send + Sync {
         db: &DatabaseConnection,
         search_dto: SearchIdolDto,
     ) -> Result<Vec<Idol>, DbErr>;
+
+    /// Finds idol list with pagination
+    async fn find_list_paginated(
+        &self,
+        db: &DatabaseConnection,
+        search_dto: SearchIdolDto,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Idol>, DbErr>;
 
     /// Creates a new idol record within an active transaction.
     async fn create(&self, txn: &DatabaseTransaction, idol: CreateIdolDto) -> Result<i64, DbErr>;

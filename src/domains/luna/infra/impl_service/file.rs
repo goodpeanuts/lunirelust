@@ -64,12 +64,11 @@ impl FileServiceTrait for FileService {
             )));
         }
 
-        // Try to find the file with different extensions
-        let supported_extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+        // Try to find the file with configured extensions
         let mut file_path = None;
         let mut found_extension = None;
 
-        for extension in &supported_extensions {
+        for extension in &self.config.asset_allowed_extensions {
             let candidate_path = file_dir.join(format!("{filename_base}.{extension}"));
             if candidate_path.exists() {
                 file_path = Some(candidate_path);
@@ -92,7 +91,8 @@ impl FileServiceTrait for FileService {
         })?;
 
         // Determine content type based on the found extension
-        let content_type = Self::get_content_type_from_filename(found_extension.unwrap_or(&""));
+        let content_type =
+            Self::get_content_type_from_filename(found_extension.map(|s| s.as_str()).unwrap_or(""));
 
         // Create the response with cache headers
         let response = Response::builder()

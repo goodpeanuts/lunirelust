@@ -16,8 +16,8 @@ use std::sync::Arc;
 /// Service struct for handling studio-related operations.
 #[derive(Clone)]
 pub struct StudioService {
-    pub db: DatabaseConnection,
-    pub repo: Arc<dyn StudioRepository + Send + Sync>,
+    db: DatabaseConnection,
+    repo: Arc<dyn StudioRepository + Send + Sync>,
 }
 
 #[async_trait]
@@ -51,71 +51,15 @@ impl StudioServiceTrait for StudioService {
         search_dto: SearchStudioDto,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<StudioDto>, AppError> {
-        let limit = pagination.limit.unwrap_or(20);
-        let offset = pagination.offset.unwrap_or(0);
-        let mut query = vec![];
-
-        if let Some(id) = search_dto.id {
-            query.push(("id", id.to_string()));
-        }
-        if let Some(name) = search_dto.name.as_deref().filter(|s| !s.trim().is_empty()) {
-            query.push(("name", name.to_owned()));
-        }
-        if let Some(link) = search_dto.link.as_deref().filter(|s| !s.trim().is_empty()) {
-            query.push(("link", link.to_owned()));
-        }
-
-        let query_string = if query.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "?{}",
-                query
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join("&")
-            )
-        };
-
-        let all_studios = self.repo.find_list(&self.db, search_dto).await?;
-        let total_count = all_studios.len() as i64;
-
-        let studios: Vec<_> = all_studios
-            .into_iter()
-            .skip(offset as usize)
-            .take(limit as usize)
-            .collect();
-
-        let base_url = format!("/cards/studios{query_string}");
-        let has_next = (offset + limit) < total_count;
-        let has_previous = offset > 0;
-
-        let next = if has_next {
-            let sep = if query_string.is_empty() { "?" } else { "&" };
-            Some(format!(
-                "{}{}limit={}&offset={}",
-                base_url,
-                sep,
-                limit,
-                offset + limit
-            ))
-        } else {
-            None
-        };
-        let previous = if has_previous {
-            let prev_offset = std::cmp::max(0, offset - limit);
-            let sep = if query_string.is_empty() { "?" } else { "&" };
-            Some(format!("{base_url}{sep}limit={limit}&offset={prev_offset}"))
-        } else {
-            None
-        };
-
+        let paginated = self
+            .repo
+            .find_list_paginated(&self.db, search_dto, pagination)
+            .await?;
         Ok(PaginatedResponse {
-            count: total_count,
-            next,
-            previous,
-            results: studios.into_iter().map(StudioDto::from).collect(),
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(StudioDto::from).collect(),
         })
     }
 
