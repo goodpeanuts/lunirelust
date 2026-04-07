@@ -25,7 +25,6 @@ pub struct UserService {
 
 #[async_trait]
 impl UserServiceTrait for UserService {
-    /// constructor for the service.
     fn create_service(
         db: DatabaseConnection,
         file_service: Arc<dyn FileServiceTrait>,
@@ -37,91 +36,66 @@ impl UserServiceTrait for UserService {
         })
     }
 
-    /// Retrieves a user by their ID.
     async fn get_user_by_id(&self, id: String) -> Result<UserDto, AppError> {
-        match self.repo.find_by_id(&self.db, id).await {
-            Ok(Some(user)) => Ok(UserDto::from(user)),
-            Ok(None) => Err(AppError::NotFound("User not found".into())),
-            Err(err) => {
-                tracing::error!("Error retrieving user: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        self.repo
+            .find_by_id(&self.db, id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .map(UserDto::from)
+            .ok_or_else(|| AppError::NotFound("User not found".into()))
     }
 
-    /// Retrieves user list by condition
-    /// Returns a vector of `UserDto` objects.
     async fn get_user_list(
         &self,
         search_user_dto: SearchUserDto,
     ) -> Result<Vec<UserDto>, AppError> {
-        match self.repo.find_list(&self.db, search_user_dto).await {
-            Ok(users) => {
-                let user_dtos: Vec<UserDto> = users.into_iter().map(Into::into).collect();
-                Ok(user_dtos)
-            }
-            Err(err) => {
-                tracing::error!("Error fetching users: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        let users = self.repo.find_list(&self.db, search_user_dto).await?;
+        Ok(users.into_iter().map(Into::into).collect())
     }
 
-    /// Retrieves all users.
-    /// Returns a vector of `UserDto` objects.
     async fn get_users(&self) -> Result<Vec<UserDto>, AppError> {
-        match self.repo.find_all(&self.db).await {
-            Ok(users) => {
-                let user_dtos: Vec<UserDto> = users.into_iter().map(Into::into).collect();
-                Ok(user_dtos)
-            }
-            Err(err) => {
-                tracing::error!("Error fetching users: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        let users = self.repo.find_all(&self.db).await?;
+        Ok(users.into_iter().map(Into::into).collect())
     }
-    /// Creates a new user.
-    /// Takes a `CreateUserMultipartDto` object and an optional `UploadFileDto` object.
+
     async fn create_user(
         &self,
         create_user: CreateUserMultipartDto,
         upload_file_dto: Option<&mut UploadFileDto>,
     ) -> Result<UserDto, AppError> {
         let txn = self.db.begin().await?;
-
         let user_id = match self.repo.create(&txn, create_user).await {
-            Ok(user_id) => user_id,
-            Err(err) => {
-                tracing::error!("Error creating user: {err}");
-                txn.rollback().await?;
-                return Err(AppError::DatabaseError(err));
+            Ok(id) => id,
+            Err(e) => {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
             }
         };
 
         if let Some(upload_file_dto) = upload_file_dto {
             upload_file_dto.user_id = Some(user_id.clone());
-            self.file_service
+            if let Err(e) = self
+                .file_service
                 .process_profile_picture_upload(&txn, upload_file_dto)
-                .await?;
+                .await
+            {
+                txn.rollback().await.ok();
+                return Err(e);
+            }
         }
 
         txn.commit().await?;
 
-        match self.repo.find_by_id(&self.db, user_id).await {
-            Ok(Some(user)) => Ok(UserDto::from(user)),
-            Ok(None) => Err(AppError::NotFound("User not found".into())),
-            Err(err) => {
-                tracing::error!("Error retrieving user: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        self.repo
+            .find_by_id(&self.db, user_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .map(UserDto::from)
+            .ok_or_else(|| AppError::NotFound("User not found".into()))
     }
 
-    /// Updates an existing user.
     async fn update_user(&self, id: String, payload: UpdateUserDto) -> Result<UserDto, AppError> {
         let txn = self.db.begin().await?;
-
         match self.repo.update(&txn, id.clone(), payload).await {
             Ok(Some(user)) => {
                 txn.commit().await?;
@@ -131,18 +105,15 @@ impl UserServiceTrait for UserService {
                 txn.rollback().await?;
                 Err(AppError::NotFound("User not found".into()))
             }
-            Err(err) => {
-                tracing::error!("Error updating user: {err}");
-                txn.rollback().await?;
-                Err(AppError::DatabaseError(err))
+            Err(e) => {
+                txn.rollback().await.ok();
+                Err(AppError::DatabaseError(e))
             }
         }
     }
 
-    /// Deletes a user by their ID.
     async fn delete_user(&self, id: String) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
-
         match self.repo.delete(&txn, id.clone()).await {
             Ok(true) => {
                 txn.commit().await?;
@@ -152,10 +123,9 @@ impl UserServiceTrait for UserService {
                 txn.rollback().await?;
                 Err(AppError::NotFound("User not found".into()))
             }
-            Err(err) => {
-                tracing::error!("Error deleting user: {err}");
-                txn.rollback().await?;
-                Err(AppError::DatabaseError(err))
+            Err(e) => {
+                txn.rollback().await.ok();
+                Err(AppError::DatabaseError(e))
             }
         }
     }

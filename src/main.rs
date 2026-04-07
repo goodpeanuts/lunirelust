@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     #[cfg(feature = "opentelemetry")]
     let opentelemetry_tracer_provider = {
-        let provider = setup_tracing_opentelemetry();
+        let provider = setup_tracing_opentelemetry()?;
         // Startup span to ensure at least one span is generated and exported
         let span = tracing::info_span!("startup");
         let _enter = span.enter();

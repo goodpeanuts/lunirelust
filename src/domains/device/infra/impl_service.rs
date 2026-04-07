@@ -20,10 +20,8 @@ pub struct DeviceService {
     repo: Arc<dyn DeviceRepository + Send + Sync>,
 }
 
-/// Implementation of the `DeviceService` struct
 #[async_trait]
 impl DeviceServiceTrait for DeviceService {
-    /// constructor for the service.
     fn create_service(db: DatabaseConnection) -> Arc<dyn DeviceServiceTrait> {
         Arc::new(Self {
             db,
@@ -31,49 +29,33 @@ impl DeviceServiceTrait for DeviceService {
         })
     }
 
-    /// get device by id
     async fn get_device_by_id(&self, id: String) -> Result<DeviceDto, AppError> {
-        match self.repo.find_by_id(&self.db, id).await {
-            Ok(Some(device)) => Ok(DeviceDto::from(device)),
-            Ok(None) => Err(AppError::NotFound("Device not found".into())),
-            Err(err) => {
-                tracing::error!("Error fetching device: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        self.repo
+            .find_by_id(&self.db, id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .map(DeviceDto::from)
+            .ok_or_else(|| AppError::NotFound("Device not found".into()))
     }
 
-    /// get devices
     async fn get_devices(&self) -> Result<Vec<DeviceDto>, AppError> {
-        match self.repo.find_all(&self.db).await {
-            Ok(devices) => {
-                let device_dtos: Vec<DeviceDto> = devices.into_iter().map(Into::into).collect();
-                Ok(device_dtos)
-            }
-            Err(err) => {
-                tracing::error!("Error fetching devices: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        let devices = self.repo.find_all(&self.db).await?;
+        Ok(devices.into_iter().map(Into::into).collect())
     }
 
-    /// create device
     async fn create_device(&self, payload: CreateDeviceDto) -> Result<DeviceDto, AppError> {
         let tx = self.db.begin().await?;
-        match self.repo.create(&tx, payload).await {
-            Ok(device) => {
-                tx.commit().await?;
-                Ok(DeviceDto::from(device))
+        let device = match self.repo.create(&tx, payload).await {
+            Ok(d) => d,
+            Err(e) => {
+                tx.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
             }
-            Err(err) => {
-                tracing::error!("Error creating device: {err}");
-                tx.rollback().await?;
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        };
+        tx.commit().await?;
+        Ok(DeviceDto::from(device))
     }
 
-    /// update device
     async fn update_device(
         &self,
         id: String,
@@ -89,15 +71,13 @@ impl DeviceServiceTrait for DeviceService {
                 tx.rollback().await?;
                 Err(AppError::NotFound("Device not found".into()))
             }
-            Err(err) => {
-                tracing::error!("Error updating device: {err}");
-                tx.rollback().await?;
-                Err(AppError::DatabaseError(err))
+            Err(e) => {
+                tx.rollback().await.ok();
+                Err(AppError::DatabaseError(e))
             }
         }
     }
 
-    /// delete device
     async fn delete_device(&self, id: String) -> Result<String, AppError> {
         let tx = self.db.begin().await?;
         match self.repo.delete(&tx, id).await {
@@ -109,15 +89,13 @@ impl DeviceServiceTrait for DeviceService {
                 tx.rollback().await?;
                 Err(AppError::NotFound("Device not found".into()))
             }
-            Err(err) => {
-                tracing::error!("Error deleting device: {err}");
-                tx.rollback().await?;
-                Err(AppError::DatabaseError(err))
+            Err(e) => {
+                tx.rollback().await.ok();
+                Err(AppError::DatabaseError(e))
             }
         }
     }
 
-    /// batch update device
     async fn update_many_devices(
         &self,
         user_id: String,
@@ -125,20 +103,15 @@ impl DeviceServiceTrait for DeviceService {
         payload: UpdateManyDevicesDto,
     ) -> Result<String, AppError> {
         let tx = self.db.begin().await?;
-        match self
+        if let Err(e) = self
             .repo
             .update_many(&tx, user_id, modified_by, payload)
             .await
         {
-            Ok(()) => {
-                tx.commit().await?;
-                Ok("Devices updated".into())
-            }
-            Err(err) => {
-                tracing::error!("Error batch update device: {err}");
-                tx.rollback().await?;
-                Err(AppError::DatabaseError(err))
-            }
+            tx.rollback().await.ok();
+            return Err(AppError::DatabaseError(e));
         }
+        tx.commit().await?;
+        Ok("Devices updated".into())
     }
 }

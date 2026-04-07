@@ -137,16 +137,14 @@ impl FileServiceTrait for FileService {
 
         let file_path = FilePath::new(self.config.assets_private_path.as_str()).join(
             to_delete_file
-                .expect("Failed to parse environment variable")
+                .expect("File should exist after successful query")
                 .file_relative_path,
         );
 
         if fs::remove_file(&file_path).await.is_err() {
             tracing::error!(
                 "Error deleting file from filesystem: {}",
-                file_path
-                    .to_str()
-                    .expect("Failed to parse environment variable")
+                file_path.to_str().expect("File path should be valid UTF-8")
             );
             return Err(AppError::InternalError);
         }
@@ -214,7 +212,7 @@ impl FileService {
             original_filename,
             base_dir_with_profile
                 .to_str()
-                .expect("Failed to parse environment variable"),
+                .expect("Base directory path should be valid UTF-8"),
         );
         let file_path = base_dir_with_profile.join(&unique_filename);
 

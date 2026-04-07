@@ -14,10 +14,9 @@ use axum::{
     Router,
 };
 
-use utoipa::{
-    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
-    OpenApi,
-};
+use utoipa::OpenApi;
+
+use crate::common::openapi::SecurityAddon;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -37,29 +36,10 @@ use utoipa::{
     security(
         ("bearer_auth" = [])
     ),
-    modifiers(&UserApiDoc)
+    modifiers(&SecurityAddon)
 )]
 /// This struct is used to generate `OpenAPI` documentation for the user routes.
 pub struct UserApiDoc;
-
-impl utoipa::Modify for UserApiDoc {
-    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi
-            .components
-            .as_mut()
-            .expect("Failed to parse environment variable");
-        components.add_security_scheme(
-            "bearer_auth",
-            SecurityScheme::Http(
-                HttpBuilder::new()
-                    .scheme(HttpAuthScheme::Bearer)
-                    .bearer_format("JWT")
-                    .description(Some("Input your `<your‑jwt>`"))
-                    .build(),
-            ),
-        );
-    }
-}
 
 pub fn user_routes() -> Router<AppState> {
     Router::new()

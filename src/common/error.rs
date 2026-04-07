@@ -79,6 +79,11 @@ impl IntoResponse for AppError {
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::WrongCredentials | Self::InvalidToken => StatusCode::UNAUTHORIZED,
         };
+
+        if status.is_server_error() {
+            error!(?status, %self, "Server error");
+        }
+
         let body = axum::Json(ApiResponse::<()> {
             status: status.as_u16(),
             message: self.to_string(),

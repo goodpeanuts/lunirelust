@@ -94,6 +94,8 @@ pub mod dto {
 
 mod infra {
     mod impl_repository {
+        #[macro_use]
+        mod entity_repo_macro;
         pub(super) mod director;
         pub(super) mod genre;
         pub(super) mod idol;

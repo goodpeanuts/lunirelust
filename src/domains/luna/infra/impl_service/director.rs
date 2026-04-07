@@ -22,7 +22,6 @@ pub struct DirectorService {
 
 #[async_trait]
 impl DirectorServiceTrait for DirectorService {
-    /// Constructor for the service.
     fn create_service(db: DatabaseConnection) -> Arc<dyn DirectorServiceTrait> {
         Arc::new(Self {
             db,
@@ -30,118 +29,67 @@ impl DirectorServiceTrait for DirectorService {
         })
     }
 
-    /// Retrieves a director by their ID.
     async fn get_director_by_id(&self, id: i64) -> Result<DirectorDto, AppError> {
-        match self.repo.find_by_id(&self.db, id).await {
-            Ok(Some(director)) => Ok(DirectorDto::from(director)),
-            Ok(None) => Err(AppError::NotFound("Director not found".into())),
-            Err(err) => {
-                tracing::error!("Error retrieving director: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        self.repo
+            .find_by_id(&self.db, id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .map(DirectorDto::from)
+            .ok_or_else(|| AppError::NotFound("Director not found".into()))
     }
 
-    /// Retrieves director list by condition
     async fn get_director_list(
         &self,
         search_dto: SearchDirectorDto,
     ) -> Result<Vec<DirectorDto>, AppError> {
-        match self.repo.find_list(&self.db, search_dto).await {
-            Ok(directors) => {
-                let director_dtos: Vec<DirectorDto> =
-                    directors.into_iter().map(Into::into).collect();
-                Ok(director_dtos)
-            }
-            Err(err) => {
-                tracing::error!("Error fetching directors: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        let directors = self.repo.find_list(&self.db, search_dto).await?;
+        Ok(directors.into_iter().map(Into::into).collect())
     }
 
-    /// Retrieves director list with pagination
     async fn get_director_list_paginated(
         &self,
         search_dto: SearchDirectorDto,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<DirectorDto>, AppError> {
-        match self
+        let paginated = self
             .repo
             .find_list_paginated(&self.db, search_dto, pagination)
-            .await
-        {
-            Ok(paginated_response) => {
-                let director_dtos: Vec<DirectorDto> = paginated_response
-                    .results
-                    .into_iter()
-                    .map(Into::into)
-                    .collect();
-                Ok(PaginatedResponse {
-                    count: paginated_response.count,
-                    next: paginated_response.next,
-                    previous: paginated_response.previous,
-                    results: director_dtos,
-                })
-            }
-            Err(err) => {
-                tracing::error!("Error retrieving paginated director list: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+            .await?;
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(Into::into).collect(),
+        })
     }
 
-    /// Retrieves all directors.
     async fn get_directors(&self) -> Result<Vec<DirectorDto>, AppError> {
-        match self.repo.find_all(&self.db).await {
-            Ok(directors) => {
-                let director_dtos: Vec<DirectorDto> =
-                    directors.into_iter().map(Into::into).collect();
-                Ok(director_dtos)
-            }
-            Err(err) => {
-                tracing::error!("Error fetching directors: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        let directors = self.repo.find_all(&self.db).await?;
+        Ok(directors.into_iter().map(Into::into).collect())
     }
 
-    /// Creates a new director.
     async fn create_director(
         &self,
         create_dto: CreateDirectorDto,
     ) -> Result<DirectorDto, AppError> {
         let txn = self.db.begin().await?;
-
         let director_id = match self.repo.create(&txn, create_dto).await {
-            Ok(director_id) => director_id,
-            Err(err) => {
-                tracing::error!("Error creating director: {err}");
-                txn.rollback().await?;
-                return Err(AppError::DatabaseError(err));
+            Ok(id) => id,
+            Err(e) => {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
             }
         };
-
         txn.commit().await?;
-
-        match self.repo.find_by_id(&self.db, director_id).await {
-            Ok(Some(director)) => Ok(DirectorDto::from(director)),
-            Ok(None) => Err(AppError::NotFound("Director not found".into())),
-            Err(err) => {
-                tracing::error!("Error retrieving director: {err}");
-                Err(AppError::DatabaseError(err))
-            }
-        }
+        self.get_director_by_id(director_id).await
     }
 
-    /// Updates an existing director.
     async fn update_director(
         &self,
         id: i64,
         payload: UpdateDirectorDto,
     ) -> Result<DirectorDto, AppError> {
         let txn = self.db.begin().await?;
-
         match self.repo.update(&txn, id, payload).await {
             Ok(Some(director)) => {
                 txn.commit().await?;
@@ -151,18 +99,15 @@ impl DirectorServiceTrait for DirectorService {
                 txn.rollback().await?;
                 Err(AppError::NotFound("Director not found".into()))
             }
-            Err(err) => {
-                tracing::error!("Error updating director: {err}");
-                txn.rollback().await?;
-                Err(AppError::DatabaseError(err))
+            Err(e) => {
+                txn.rollback().await.ok();
+                Err(AppError::DatabaseError(e))
             }
         }
     }
 
-    /// Deletes a director by their ID.
     async fn delete_director(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
-
         match self.repo.delete(&txn, id).await {
             Ok(true) => {
                 txn.commit().await?;
@@ -172,15 +117,13 @@ impl DirectorServiceTrait for DirectorService {
                 txn.rollback().await?;
                 Err(AppError::NotFound("Director not found".into()))
             }
-            Err(err) => {
-                tracing::error!("Error deleting director: {err}");
-                txn.rollback().await?;
-                Err(AppError::DatabaseError(err))
+            Err(e) => {
+                txn.rollback().await.ok();
+                Err(AppError::DatabaseError(e))
             }
         }
     }
 
-    /// Gets record counts grouped by directors.
     async fn get_director_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {
         self.repo
             .get_director_record_counts(&self.db)

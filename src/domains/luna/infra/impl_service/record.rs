@@ -1,5 +1,6 @@
 use crate::{
     common::error::AppError,
+    common::pagination::paginate,
     domains::luna::{
         domain::{RecordRepository, RecordServiceTrait},
         dto::{
@@ -65,35 +66,7 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = records.len();
-        let paginated_records: Vec<RecordDto> = records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(records, &pagination, RecordDto::from))
     }
 
     async fn get_records(&self) -> Result<Vec<RecordDto>, AppError> {
@@ -129,11 +102,13 @@ impl RecordServiceTrait for RecordService {
     async fn create_record(&self, create_dto: CreateRecordDto) -> Result<RecordDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let id = self
-            .repo
-            .create(&txn, create_dto)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let id = match self.repo.create(&txn, create_dto).await {
+            Ok(id) => id,
+            Err(e) => {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+        };
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
 
@@ -147,11 +122,13 @@ impl RecordServiceTrait for RecordService {
     ) -> Result<RecordDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let updated_record = self
-            .repo
-            .update(&txn, id.to_owned(), update_dto)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let updated_record = match self.repo.update(&txn, id.to_owned(), update_dto).await {
+            Ok(r) => r,
+            Err(e) => {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+        };
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
 
@@ -167,11 +144,17 @@ impl RecordServiceTrait for RecordService {
     ) -> Result<i32, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let result = self
+        let result = match self
             .repo
             .update_record_links(&txn, id.to_owned(), new_links)
             .await
-            .map_err(AppError::DatabaseError)?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+        };
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
         Ok(result)
@@ -180,11 +163,13 @@ impl RecordServiceTrait for RecordService {
     async fn delete_record(&self, id: &str) -> Result<String, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let deleted = self
-            .repo
-            .delete(&txn, id.to_owned())
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let deleted = match self.repo.delete(&txn, id.to_owned()).await {
+            Ok(d) => d,
+            Err(e) => {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+        };
 
         if deleted {
             txn.commit().await.map_err(AppError::DatabaseError)?;
@@ -211,35 +196,7 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = all_records.len();
-        let paginated_records: Vec<RecordDto> = all_records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(all_records, &pagination, RecordDto::from))
     }
 
     async fn get_records_by_studio(
@@ -258,35 +215,7 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = all_records.len();
-        let paginated_records: Vec<RecordDto> = all_records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(all_records, &pagination, RecordDto::from))
     }
 
     async fn get_records_by_label(
@@ -305,35 +234,7 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = all_records.len();
-        let paginated_records: Vec<RecordDto> = all_records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(all_records, &pagination, RecordDto::from))
     }
 
     async fn get_records_by_series(
@@ -352,35 +253,7 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = all_records.len();
-        let paginated_records: Vec<RecordDto> = all_records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(all_records, &pagination, RecordDto::from))
     }
 
     async fn get_records_by_genre(
@@ -394,35 +267,7 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = all_records.len();
-        let paginated_records: Vec<RecordDto> = all_records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(all_records, &pagination, RecordDto::from))
     }
 
     async fn get_records_by_idol(
@@ -436,34 +281,6 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
-
-        let total_count = all_records.len();
-        let paginated_records: Vec<RecordDto> = all_records
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(RecordDto::from)
-            .collect();
-
-        Ok(PaginatedResponse {
-            count: total_count as i64,
-            next: if offset + limit < total_count {
-                Some(format!("?limit={}&offset={}", limit, offset + limit))
-            } else {
-                None
-            },
-            previous: if offset > 0 {
-                Some(format!(
-                    "?limit={}&offset={}",
-                    limit,
-                    (offset.saturating_sub(limit))
-                ))
-            } else {
-                None
-            },
-            results: paginated_records,
-        })
+        Ok(paginate(all_records, &pagination, RecordDto::from))
     }
 }

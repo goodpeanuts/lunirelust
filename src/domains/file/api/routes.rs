@@ -7,10 +7,9 @@ use axum::{
     Router,
 };
 
-use utoipa::{
-    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
-    OpenApi,
-};
+use utoipa::OpenApi;
+
+use crate::common::openapi::SecurityAddon;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -25,29 +24,10 @@ use utoipa::{
     security(
         ("bearer_auth" = [])
     ),
-    modifiers(&FileApiDoc)
+    modifiers(&SecurityAddon)
 )]
 /// `FileApiDoc` is used to generate `OpenAPI` documentation for the file API.
 pub struct FileApiDoc;
-
-impl utoipa::Modify for FileApiDoc {
-    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi
-            .components
-            .as_mut()
-            .expect("Failed to parse environment variable");
-        components.add_security_scheme(
-            "bearer_auth",
-            SecurityScheme::Http(
-                HttpBuilder::new()
-                    .scheme(HttpAuthScheme::Bearer)
-                    .bearer_format("JWT")
-                    .description(Some("Input your `<your‑jwt>`"))
-                    .build(),
-            ),
-        );
-    }
-}
 
 pub fn file_routes() -> Router<AppState> {
     Router::new()
