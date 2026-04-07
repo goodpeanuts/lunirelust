@@ -57,4 +57,18 @@ pub trait RecordRepository: Send + Sync {
 
     /// Retrieves all record IDs from the database.
     async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+
+    /// Finds records filtered by genre via JOIN on `record_genre` table.
+    async fn find_by_genre_id(
+        &self,
+        db: &DatabaseConnection,
+        genre_id: i64,
+    ) -> Result<Vec<Record>, DbErr>;
+
+    /// Finds records filtered by idol via JOIN on `idol_participation` table.
+    async fn find_by_idol_id(
+        &self,
+        db: &DatabaseConnection,
+        idol_id: i64,
+    ) -> Result<Vec<Record>, DbErr>;
 }

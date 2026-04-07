@@ -9,7 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
-    EntityTrait as _, PaginatorTrait as _, QueryFilter as _, Set,
+    EntityTrait as _, QueryFilter as _, QuerySelect as _, Set,
 };
 
 // Idol Repository Implementation
@@ -135,14 +135,31 @@ impl IdolRepository for IdolRepo {
         &self,
         db: &DatabaseConnection,
     ) -> Result<Vec<EntityCountDto>, DbErr> {
+        use sea_orm::FromQueryResult;
+        use std::collections::HashMap;
+
+        #[derive(FromQueryResult)]
+        struct IdolCountRow {
+            idol_id: i64,
+            count: i64,
+        }
+
+        let counts: Vec<IdolCountRow> = IdolParticipationEntity::find()
+            .select_only()
+            .column_as(idol_participation::Column::IdolId, "idol_id")
+            .column_as(idol_participation::Column::Id.count(), "count")
+            .group_by(idol_participation::Column::IdolId)
+            .into_model::<IdolCountRow>()
+            .all(db)
+            .await?;
+
+        let count_map: HashMap<i64, i64> =
+            counts.into_iter().map(|c| (c.idol_id, c.count)).collect();
+
         let idols = IdolEntity::find().all(db).await?;
         let mut result = Vec::new();
-
         for idol in idols {
-            let count = IdolParticipationEntity::find()
-                .filter(idol_participation::Column::IdolId.eq(idol.id))
-                .count(db)
-                .await? as i64;
+            let count = count_map.get(&idol.id).copied().unwrap_or(0);
 
             result.push(EntityCountDto {
                 id: idol.id,

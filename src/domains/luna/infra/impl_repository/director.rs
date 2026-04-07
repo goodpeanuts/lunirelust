@@ -208,14 +208,33 @@ impl DirectorRepository for DirectorRepo {
         &self,
         db: &DatabaseConnection,
     ) -> Result<Vec<EntityCountDto>, DbErr> {
+        use sea_orm::{FromQueryResult, QuerySelect as _};
+        use std::collections::HashMap;
+
+        #[derive(FromQueryResult)]
+        struct DirectorCountRow {
+            director_id: i64,
+            count: i64,
+        }
+
+        let counts: Vec<DirectorCountRow> = RecordEntity::find()
+            .select_only()
+            .column_as(record::Column::DirectorId, "director_id")
+            .column_as(record::Column::Id.count(), "count")
+            .group_by(record::Column::DirectorId)
+            .into_model::<DirectorCountRow>()
+            .all(db)
+            .await?;
+
+        let count_map: HashMap<i64, i64> = counts
+            .into_iter()
+            .map(|c| (c.director_id, c.count))
+            .collect();
+
         let directors = DirectorEntity::find().all(db).await?;
         let mut result = Vec::new();
-
         for director in directors {
-            let count = RecordEntity::find()
-                .filter(record::Column::DirectorId.eq(director.id))
-                .count(db)
-                .await? as i64;
+            let count = count_map.get(&director.id).copied().unwrap_or(0);
 
             result.push(EntityCountDto {
                 id: director.id,

@@ -107,7 +107,7 @@ impl From<Record> for RecordSlimDto {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct SearchRecordDto {
     pub id: Option<String>,
     pub title: Option<String>,

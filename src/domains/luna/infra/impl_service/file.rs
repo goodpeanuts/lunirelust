@@ -27,12 +27,33 @@ impl FileService {
 impl FileServiceTrait for FileService {
     /// Serves a media file based on the provided media access parameters
     async fn serve_media_file(&self, media_dto: MediaAccessDto) -> Result<Response, AppError> {
+        // Block path traversal characters in the ID parameter
+        if media_dto.id.contains("..")
+            || media_dto.id.contains('/')
+            || media_dto.id.contains('\\')
+            || media_dto.id.contains('\0')
+        {
+            return Err(AppError::NotFound("Media not found".into()));
+        }
+
         // Build the file directory path: assets_private_path/records/images/id/
-        let file_dir = Path::new(&self.config.assets_private_path)
+        let base_dir = Path::new(&self.config.assets_private_path)
             .join("images")
-            .join(media_dto.media_type.get_sub_dir_name())
-            .join(&media_dto.id);
+            .join(media_dto.media_type.get_sub_dir_name());
+        let file_dir = base_dir.join(&media_dto.id);
         let filename_base = media_dto.get_filename();
+
+        // Verify the resolved path stays within the base directory (path traversal check)
+        if file_dir.exists() {
+            if let (Ok(canonical_base), Ok(canonical_file_dir)) =
+                (base_dir.canonicalize(), file_dir.canonicalize())
+            {
+                if !canonical_file_dir.starts_with(&canonical_base) {
+                    tracing::error!("Path traversal detected: {}", file_dir.display());
+                    return Err(AppError::NotFound("Media not found".into()));
+                }
+            }
+        }
 
         // Check if the directory exists
         if !file_dir.exists() {

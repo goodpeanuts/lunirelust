@@ -9,7 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
-    EntityTrait as _, PaginatorTrait as _, QueryFilter as _, Set,
+    EntityTrait as _, QueryFilter as _, Set,
 };
 
 // Studio Repository Implementation
@@ -144,15 +144,31 @@ impl StudioRepository for StudioRepo {
         &self,
         db: &DatabaseConnection,
     ) -> Result<Vec<EntityCountDto>, DbErr> {
+        use sea_orm::{FromQueryResult, QuerySelect as _};
+        use std::collections::HashMap;
+
+        #[derive(FromQueryResult)]
+        struct StudioCountRow {
+            studio_id: i64,
+            count: i64,
+        }
+
+        let counts: Vec<StudioCountRow> = RecordEntity::find()
+            .select_only()
+            .column_as(record::Column::StudioId, "studio_id")
+            .column_as(record::Column::Id.count(), "count")
+            .group_by(record::Column::StudioId)
+            .into_model::<StudioCountRow>()
+            .all(db)
+            .await?;
+
+        let count_map: HashMap<i64, i64> =
+            counts.into_iter().map(|c| (c.studio_id, c.count)).collect();
+
         let studios = StudioEntity::find().all(db).await?;
         let mut result = Vec::new();
-
         for studio in studios {
-            let count = RecordEntity::find()
-                .filter(record::Column::StudioId.eq(studio.id))
-                .count(db)
-                .await? as i64;
-
+            let count = count_map.get(&studio.id).copied().unwrap_or(0);
             result.push(EntityCountDto {
                 id: studio.id,
                 name: studio.name,

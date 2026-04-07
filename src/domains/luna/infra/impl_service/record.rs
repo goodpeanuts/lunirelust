@@ -1,7 +1,7 @@
 use crate::{
     common::error::AppError,
     domains::luna::{
-        domain::{Record, RecordRepository, RecordServiceTrait},
+        domain::{RecordRepository, RecordServiceTrait},
         dto::{
             CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
             RecordSlimDto, SearchRecordDto, UpdateRecordDto,
@@ -200,15 +200,9 @@ impl RecordServiceTrait for RecordService {
         director_id: i64,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
-        // Simplified implementation using search
         let search_dto = SearchRecordDto {
-            id: None,
-            title: None,
-            director_id: None,
-            studio_id: None,
-            label_id: None,
-            series_id: None,
-            search: None,
+            director_id: Some(director_id),
+            ..Default::default()
         };
 
         let all_records = self
@@ -217,17 +211,11 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        // Filter by director
-        let filtered_records: Vec<Record> = all_records
-            .into_iter()
-            .filter(|r| r.director.id == director_id)
-            .collect();
-
         let limit = pagination.limit.unwrap_or(10) as usize;
         let offset = pagination.offset.unwrap_or(0) as usize;
 
-        let total_count = filtered_records.len();
-        let paginated_records: Vec<RecordDto> = filtered_records
+        let total_count = all_records.len();
+        let paginated_records: Vec<RecordDto> = all_records
             .into_iter()
             .skip(offset)
             .take(limit)
@@ -259,15 +247,9 @@ impl RecordServiceTrait for RecordService {
         studio_id: i64,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
-        // Similar implementation to get_records_by_director
         let search_dto = SearchRecordDto {
-            id: None,
-            title: None,
-            director_id: None,
-            studio_id: None,
-            label_id: None,
-            series_id: None,
-            search: None,
+            studio_id: Some(studio_id),
+            ..Default::default()
         };
 
         let all_records = self
@@ -276,16 +258,11 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let filtered_records: Vec<Record> = all_records
-            .into_iter()
-            .filter(|r| r.studio.id == studio_id)
-            .collect();
-
         let limit = pagination.limit.unwrap_or(10) as usize;
         let offset = pagination.offset.unwrap_or(0) as usize;
 
-        let total_count = filtered_records.len();
-        let paginated_records: Vec<RecordDto> = filtered_records
+        let total_count = all_records.len();
+        let paginated_records: Vec<RecordDto> = all_records
             .into_iter()
             .skip(offset)
             .take(limit)
@@ -318,13 +295,8 @@ impl RecordServiceTrait for RecordService {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         let search_dto = SearchRecordDto {
-            id: None,
-            title: None,
-            director_id: None,
-            studio_id: None,
-            label_id: None,
-            series_id: None,
-            search: None,
+            label_id: Some(label_id),
+            ..Default::default()
         };
 
         let all_records = self
@@ -333,16 +305,11 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let filtered_records: Vec<Record> = all_records
-            .into_iter()
-            .filter(|r| r.label.id == label_id)
-            .collect();
-
         let limit = pagination.limit.unwrap_or(10) as usize;
         let offset = pagination.offset.unwrap_or(0) as usize;
 
-        let total_count = filtered_records.len();
-        let paginated_records: Vec<RecordDto> = filtered_records
+        let total_count = all_records.len();
+        let paginated_records: Vec<RecordDto> = all_records
             .into_iter()
             .skip(offset)
             .take(limit)
@@ -375,13 +342,8 @@ impl RecordServiceTrait for RecordService {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         let search_dto = SearchRecordDto {
-            id: None,
-            title: None,
-            director_id: None,
-            studio_id: None,
-            label_id: None,
-            series_id: None,
-            search: None,
+            series_id: Some(series_id),
+            ..Default::default()
         };
 
         let all_records = self
@@ -390,16 +352,11 @@ impl RecordServiceTrait for RecordService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let filtered_records: Vec<Record> = all_records
-            .into_iter()
-            .filter(|r| r.series.id == series_id)
-            .collect();
-
         let limit = pagination.limit.unwrap_or(10) as usize;
         let offset = pagination.offset.unwrap_or(0) as usize;
 
-        let total_count = filtered_records.len();
-        let paginated_records: Vec<RecordDto> = filtered_records
+        let total_count = all_records.len();
+        let paginated_records: Vec<RecordDto> = all_records
             .into_iter()
             .skip(offset)
             .take(limit)
@@ -431,33 +388,17 @@ impl RecordServiceTrait for RecordService {
         genre_id: i64,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
-        let search_dto = SearchRecordDto {
-            id: None,
-            title: None,
-            director_id: None,
-            studio_id: None,
-            label_id: None,
-            series_id: None,
-            search: None,
-        };
-
         let all_records = self
             .repo
-            .find_list(&self.db, search_dto)
+            .find_by_genre_id(&self.db, genre_id)
             .await
             .map_err(AppError::DatabaseError)?;
-
-        // Filter by genre using the genres relation
-        let filtered_records: Vec<Record> = all_records
-            .into_iter()
-            .filter(|r| r.genres.iter().any(|rg| rg.genre.id == genre_id))
-            .collect();
 
         let limit = pagination.limit.unwrap_or(10) as usize;
         let offset = pagination.offset.unwrap_or(0) as usize;
 
-        let total_count = filtered_records.len();
-        let paginated_records: Vec<RecordDto> = filtered_records
+        let total_count = all_records.len();
+        let paginated_records: Vec<RecordDto> = all_records
             .into_iter()
             .skip(offset)
             .take(limit)
@@ -489,33 +430,17 @@ impl RecordServiceTrait for RecordService {
         idol_id: i64,
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
-        let search_dto = SearchRecordDto {
-            id: None,
-            title: None,
-            director_id: None,
-            studio_id: None,
-            label_id: None,
-            series_id: None,
-            search: None,
-        };
-
         let all_records = self
             .repo
-            .find_list(&self.db, search_dto)
+            .find_by_idol_id(&self.db, idol_id)
             .await
             .map_err(AppError::DatabaseError)?;
-
-        // Filter by idol using the idols relation
-        let filtered_records: Vec<Record> = all_records
-            .into_iter()
-            .filter(|r| r.idols.iter().any(|ip| ip.idol.id == idol_id))
-            .collect();
 
         let limit = pagination.limit.unwrap_or(10) as usize;
         let offset = pagination.offset.unwrap_or(0) as usize;
 
-        let total_count = filtered_records.len();
-        let paginated_records: Vec<RecordDto> = filtered_records
+        let total_count = all_records.len();
+        let paginated_records: Vec<RecordDto> = all_records
             .into_iter()
             .skip(offset)
             .take(limit)

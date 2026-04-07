@@ -8,6 +8,7 @@ use crate::domains::file::infra::impl_repository::FileRepo;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait as _};
 use std::path::Path as FilePath;
 use std::sync::Arc;
+use tokio::fs;
 
 use async_trait::async_trait;
 
@@ -51,7 +52,7 @@ impl FileServiceTrait for FileService {
         let (unique_filename, file_relative_path, file_path) =
             self.build_file_path(&file_dto.original_filename);
 
-        Self::write_file_to_disk(&file_path, &file_dto.data)?;
+        Self::write_file_to_disk(&file_path, &file_dto.data).await?;
 
         let file_url = format!(
             "{}/profile/{}",
@@ -140,7 +141,7 @@ impl FileServiceTrait for FileService {
                 .file_relative_path,
         );
 
-        if std::fs::remove_file(&file_path).is_err() {
+        if fs::remove_file(&file_path).await.is_err() {
             tracing::error!(
                 "Error deleting file from filesystem: {}",
                 file_path
@@ -222,14 +223,14 @@ impl FileService {
     }
 
     /// Writes the file's byte data to the disk, creating directories as needed.
-    fn write_file_to_disk(file_path: &FilePath, data: &[u8]) -> Result<(), AppError> {
+    async fn write_file_to_disk(file_path: &FilePath, data: &[u8]) -> Result<(), AppError> {
         let parent = file_path.parent().ok_or(AppError::InternalError)?;
-        std::fs::create_dir_all(parent).map_err(|err| {
+        fs::create_dir_all(parent).await.map_err(|err| {
             tracing::error!("Error creating directory: {err}");
             AppError::InternalError
         })?;
 
-        std::fs::write(file_path, data).map_err(|err| {
+        fs::write(file_path, data).await.map_err(|err| {
             tracing::error!("Error writing file: {err}");
             AppError::InternalError
         })?;

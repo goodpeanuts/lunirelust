@@ -198,14 +198,31 @@ impl LabelRepository for LabelRepo {
         &self,
         db: &DatabaseConnection,
     ) -> Result<Vec<EntityCountDto>, DbErr> {
+        use sea_orm::{FromQueryResult, QuerySelect as _};
+        use std::collections::HashMap;
+
+        #[derive(FromQueryResult)]
+        struct LabelCountRow {
+            label_id: i64,
+            count: i64,
+        }
+
+        let counts: Vec<LabelCountRow> = RecordEntity::find()
+            .select_only()
+            .column_as(record::Column::LabelId, "label_id")
+            .column_as(record::Column::Id.count(), "count")
+            .group_by(record::Column::LabelId)
+            .into_model::<LabelCountRow>()
+            .all(db)
+            .await?;
+
+        let count_map: HashMap<i64, i64> =
+            counts.into_iter().map(|c| (c.label_id, c.count)).collect();
+
         let labels = LabelEntity::find().all(db).await?;
         let mut result = Vec::new();
-
         for label in labels {
-            let count = RecordEntity::find()
-                .filter(record::Column::LabelId.eq(label.id))
-                .count(db)
-                .await? as i64;
+            let count = count_map.get(&label.id).copied().unwrap_or(0);
 
             result.push(EntityCountDto {
                 id: label.id,

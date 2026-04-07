@@ -200,15 +200,31 @@ impl GenreRepository for GenreRepo {
         &self,
         db: &DatabaseConnection,
     ) -> Result<Vec<EntityCountDto>, DbErr> {
+        use sea_orm::{FromQueryResult, QuerySelect as _};
+        use std::collections::HashMap;
+
+        #[derive(FromQueryResult)]
+        struct GenreCountRow {
+            genre_id: i64,
+            count: i64,
+        }
+
+        let counts: Vec<GenreCountRow> = RecordGenreEntity::find()
+            .select_only()
+            .column_as(record_genre::Column::GenreId, "genre_id")
+            .column_as(record_genre::Column::Id.count(), "count")
+            .group_by(record_genre::Column::GenreId)
+            .into_model::<GenreCountRow>()
+            .all(db)
+            .await?;
+
+        let count_map: HashMap<i64, i64> =
+            counts.into_iter().map(|c| (c.genre_id, c.count)).collect();
+
         let genres = GenreEntity::find().all(db).await?;
         let mut result = Vec::new();
-
         for genre in genres {
-            let count = RecordGenreEntity::find()
-                .filter(record_genre::Column::GenreId.eq(genre.id))
-                .count(db)
-                .await? as i64;
-
+            let count = count_map.get(&genre.id).copied().unwrap_or(0);
             result.push(EntityCountDto {
                 id: genre.id,
                 name: genre.name,

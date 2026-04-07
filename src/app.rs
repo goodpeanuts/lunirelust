@@ -4,7 +4,7 @@ use axum::{
     extract::{DefaultBodyLimit, Request},
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE},
-        Method, StatusCode,
+        HeaderValue, Method, StatusCode,
     },
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -15,11 +15,7 @@ use http_body_util::BodyExt as _;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::normalize_path::NormalizePathLayer;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    services::ServeDir,
-    trace::TraceLayer,
-};
+use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 
 use crate::{
     common::{
@@ -72,11 +68,24 @@ fn create_swagger_ui() -> SwaggerUi {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    // Build a CORS layer that applies to everyone
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_origin(Any)
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+    // Build a CORS layer from configured origins
+    let cors = if state.config.cors_origins.is_empty() {
+        tracing::warn!("CORS_ORIGINS not configured — all cross-origin requests will be rejected");
+        CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+    } else {
+        let origins: Vec<HeaderValue> = state
+            .config
+            .cors_origins
+            .iter()
+            .filter_map(|o| o.parse::<HeaderValue>().ok())
+            .collect();
+        CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_origin(origins)
+            .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+    };
 
     // Create a common middleware stack for error handling, timeouts, and CORS.
     let middleware_stack = ServiceBuilder::new()
@@ -202,10 +211,25 @@ async fn request_response_inspecter(
     }
 
     let (parts, body) = req.into_parts();
+
+    // Check if the request is multipart/form-data — skip body buffering to avoid OOM on large file uploads
+    let is_multipart = parts
+        .headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.starts_with("multipart/form-data"));
+
+    if is_multipart {
+        // Pass through without buffering — multipart bodies are validated in their handlers
+        let req = Request::from_parts(parts, body);
+        return Ok(next.run(req).await);
+    }
+
     let bytes = request_inspect_print("request", log_enabled, body).await?;
     let req = Request::from_parts(parts, Body::from(bytes));
 
     let mut res = next.run(req).await;
+    // Only buffer response body for logging when enabled AND non-multipart
     if log_enabled && tracing::enabled!(tracing::Level::DEBUG) {
         let (parts, body) = res.into_parts();
         let bytes = response_print("response", body).await?;

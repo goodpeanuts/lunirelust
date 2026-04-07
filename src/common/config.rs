@@ -23,6 +23,8 @@ pub struct Config {
 
     pub asset_allowed_extensions_pattern: Regex,
     pub asset_max_size: usize,
+
+    pub cors_origins: Vec<String>,
 }
 
 /// `from_env` reads the environment variables and returns a Config struct.
@@ -62,6 +64,10 @@ impl Config {
 
             asset_max_size: env::var("ASSET_MAX_SIZE")
                 .map(|s| s.parse::<usize>().unwrap_or(50 * 1024 * 1024))?, // Default to 50MB
+
+            cors_origins: env::var("CORS_ORIGINS")
+                .map(|s| s.split(',').map(|o| o.trim().to_owned()).collect())
+                .unwrap_or_default(),
         })
     }
 }

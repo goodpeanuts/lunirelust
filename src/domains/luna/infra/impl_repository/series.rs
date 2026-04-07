@@ -9,7 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
-    EntityTrait as _, PaginatorTrait as _, QueryFilter as _, Set,
+    EntityTrait as _, QueryFilter as _, Set,
 };
 
 // Series Repository Implementation
@@ -139,15 +139,31 @@ impl SeriesRepository for SeriesRepo {
         &self,
         db: &DatabaseConnection,
     ) -> Result<Vec<EntityCountDto>, DbErr> {
+        use sea_orm::{FromQueryResult, QuerySelect as _};
+        use std::collections::HashMap;
+
+        #[derive(FromQueryResult)]
+        struct SeriesCountRow {
+            series_id: i64,
+            count: i64,
+        }
+
+        let counts: Vec<SeriesCountRow> = RecordEntity::find()
+            .select_only()
+            .column_as(record::Column::SeriesId, "series_id")
+            .column_as(record::Column::Id.count(), "count")
+            .group_by(record::Column::SeriesId)
+            .into_model::<SeriesCountRow>()
+            .all(db)
+            .await?;
+
+        let count_map: HashMap<i64, i64> =
+            counts.into_iter().map(|c| (c.series_id, c.count)).collect();
+
         let series_list = SeriesEntity::find().all(db).await?;
         let mut result = Vec::new();
-
         for series in series_list {
-            let count = RecordEntity::find()
-                .filter(record::Column::SeriesId.eq(series.id))
-                .count(db)
-                .await? as i64;
-
+            let count = count_map.get(&series.id).copied().unwrap_or(0);
             result.push(EntityCountDto {
                 id: series.id,
                 name: series.name,
