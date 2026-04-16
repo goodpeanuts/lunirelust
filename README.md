@@ -37,6 +37,22 @@ Git cliff is used to generate changelogs from commit messages.
 cargo install git-cliff
 ```
 
+#### just
+
+Just is the task runner used for local development and test workflows.
+
+```bash
+cargo install just
+```
+
+#### cargo-watch
+
+Cargo Watch is used by `just dev` for hot reload during backend development.
+
+```bash
+cargo install cargo-watch
+```
+
 #### Pre-commit
 
 Pre-commit is a framework for managing and maintaining multi-language pre-commit hooks.
@@ -50,6 +66,8 @@ setup pre-commit hooks:
 ```bash
 pre-commit install
 ```
+
+The test hook reuses `just test`, so local hook checks and manual test runs follow the same workflow.
 
 #### typos
 
@@ -142,11 +160,21 @@ docker-compose up -d
 ### Testing
 
 ```bash
-# Run tests
-cargo test
+# Prepare the test database and seed data
+just test-prepare
 
-# Run tests with nextest
-cargo nextest run
+# Run the default local test gate
+# This prepares the test database, runs `cargo nextest`, and then runs doctests
+just test
+
+# Run the main Rust test suite only
+just test-nextest
+
+# Run doctests only
+just test-doc
+
+# Run all hooks with the same test flow used by pre-commit
+pre-commit run --all-files
 ```
 
 ## Architecture

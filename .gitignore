@@ -4,6 +4,7 @@
 
 # Database data directory
 /db
+/meili_data_test/
 
 # Environment files
 .env
@@ -12,3 +13,5 @@
 # test images, will genereate after running tests
 cat(*).png
 images/
+
+meili_data/

@@ -59,9 +59,9 @@ repos:
         pass_filenames: false
 
       - id: cargo-test
-        name: cargo test
-        description: unit test for the project
-        entry: bash -c 'cargo nextest run --all-features'
+        name: just test
+        description: prepare test deps and run nextest plus doctests via just
+        entry: bash -c 'just test'
         language: rust
         files: \.rs$
         pass_filenames: false

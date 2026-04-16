@@ -1,0 +1,8 @@
+[alias]
+# NOTE:
+# These aliases provide a fast/consistent local workflow.
+# Usage pattern: `cargo <alias> [extra args]`.
+
+# Apply clippy autofixes across current working tree.
+# Equivalent intent: quickly fix lint issues before manual review.
+cfaa = "clippy --fix --allow-dirty --allow-staged"

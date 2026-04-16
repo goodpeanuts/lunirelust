@@ -1,33 +1,38 @@
+# 本地基础设施 — 通过 --env-file 切换测试/开发模式
+#
+# 测试模式：just test-db
+#   docker compose --env-file .env.test up -d
+#
+# 开发模式：just dev
+#   docker compose --env-file .env up -d
+
 services:
   postgres:
     image: postgres:15
-    container_name: clean_axum_app_postgres
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: testuser
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: testdb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
-      - ./db:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_DIR}:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: clean_axum_app
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
-    env_file:
-      - .env
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: ${COMPOSE_PROJECT_NAME}-meilisearch
+    restart: unless-stopped
     environment:
-      - DATABASE_URL=postgres://testuser:pass@clean_axum_app_postgres:5432/testdb
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_ENV: development
+    ports:
+      - "${MEILI_PORT}:7700"
+    volumes:
+      - ${MEILI_DATA_DIR}:/meili_data

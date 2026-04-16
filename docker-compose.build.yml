@@ -1,0 +1,42 @@
+# 本地构建全栈 — 在基础服务上加 vllm + app 容器
+# 使用方式：just build
+# 等效命令：docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: ${COMPOSE_PROJECT_NAME}-vllm
+    restart: unless-stopped
+    command: >
+      --model BAAI/bge-m3
+      --task embed
+      --port 8000
+      --trust-remote-code
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${SERVICE_PORT:-8012}:${SERVICE_PORT:-8012}"
+    env_file:
+      - ${DEPLOY_ENV_FILE}
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - MEILI_URL=http://meilisearch:7700
+      - VLLM_EMBEDDING_URL=http://vllm:8000
