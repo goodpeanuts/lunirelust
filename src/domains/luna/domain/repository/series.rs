@@ -37,7 +37,7 @@ pub trait SeriesRepository: Send + Sync {
         &self,
         txn: &DatabaseTransaction,
         series: CreateSeriesDto,
-    ) -> Result<i64, DbErr>;
+    ) -> Result<(i64, bool), DbErr>;
 
     /// Updates an existing series record.
     async fn update(

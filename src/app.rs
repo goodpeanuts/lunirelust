@@ -25,7 +25,7 @@ use crate::{
     },
     domains::{
         auth::user_auth_routes, device::device_routes, file::file_routes, luna::luna_routes,
-        user::user_routes,
+        search::search_routes, user::user_routes,
     },
 };
 
@@ -35,7 +35,7 @@ use utoipa::OpenApi as _;
 #[cfg(feature = "swagger")]
 use crate::domains::{
     auth::UserAuthApiDoc, device::DeviceApiDoc, file::FileApiDoc, luna::LunaApiDoc,
-    user::UserApiDoc,
+    search::SearchApiDoc, user::UserApiDoc,
 };
 
 #[cfg(feature = "swagger")]
@@ -65,6 +65,7 @@ fn create_swagger_ui() -> SwaggerUi {
         .url("/api-docs/device/openapi.json", DeviceApiDoc::openapi())
         .url("/api-docs/file/openapi.json", FileApiDoc::openapi())
         .url("/api-docs/luna/openapi.json", LunaApiDoc::openapi())
+        .url("/api-docs/search/openapi.json", SearchApiDoc::openapi())
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -103,7 +104,7 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/user", user_routes())
         .nest("/device", device_routes())
         .nest("/file", file_routes())
-        .nest("/cards", luna_routes())
+        .nest("/cards", luna_routes().merge(search_routes()))
         // by default, Multipart limits to 2MB; override with `asset_max_size`
         // See https://docs.rs/axum/latest/axum/extract/struct.Multipart.html
         .layer(DefaultBodyLimit::max(state.config.asset_max_size))

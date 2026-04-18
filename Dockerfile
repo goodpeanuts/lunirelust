@@ -31,6 +31,6 @@ COPY --from=builder /app/target/release/migration .
 # # Copy assets if needed
 # COPY assets ./assets
 
-ENV RUST_LOG=info
+ENV RUST_LOG=info,sqlx=warn
 
 ENTRYPOINT ["/app/lunirelust"]

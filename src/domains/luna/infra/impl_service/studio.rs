@@ -1,3 +1,4 @@
+use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
@@ -6,7 +7,7 @@ use crate::{
             CreateStudioDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchStudioDto,
             StudioDto, UpdateStudioDto,
         },
-        infra::StudioRepo,
+        infra::{search_outbox, StudioRepo},
     },
 };
 use async_trait::async_trait;
@@ -70,13 +71,27 @@ impl StudioServiceTrait for StudioService {
 
     async fn create_studio(&self, create_dto: CreateStudioDto) -> Result<StudioDto, AppError> {
         let txn = self.db.begin().await?;
-        let studio_id = match self.repo.create(&txn, create_dto).await {
-            Ok(id) => id,
+        let entity_name = create_dto.name.clone();
+        let (studio_id, was_created) = match self.repo.create(&txn, create_dto).await {
+            Ok(pair) => pair,
             Err(e) => {
                 txn.rollback().await.ok();
                 return Err(AppError::DatabaseError(e));
             }
         };
+
+        if was_created {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Studio,
+                studio_id,
+                &entity_name,
+                Vec::new(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+        }
+
         txn.commit().await?;
         self.get_studio_by_id(studio_id).await
     }
@@ -87,38 +102,99 @@ impl StudioServiceTrait for StudioService {
         update_dto: UpdateStudioDto,
     ) -> Result<StudioDto, AppError> {
         let txn = self.db.begin().await?;
-        match self.repo.update(&txn, id, update_dto).await {
-            Ok(Some(studio)) => {
-                txn.commit().await?;
-                Ok(StudioDto::from(studio))
-            }
+
+        let pre_affected =
+            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Studio, id)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
+        let studio = match self.repo.update(&txn, id, update_dto).await {
+            Ok(Some(s)) => s,
             Ok(None) => {
                 txn.rollback().await?;
-                Err(AppError::NotFound("Studio not found".into()))
+                return Err(AppError::NotFound("Studio not found".into()));
             }
             Err(e) => {
                 txn.rollback().await.ok();
-                Err(AppError::DatabaseError(e))
+                return Err(AppError::DatabaseError(e));
             }
+        };
+
+        let surviving_id = studio.id;
+        if surviving_id != id {
+            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Studio, id, vec![])
+                .await
+                .map_err(AppError::DatabaseError)?;
+            let mut all_affected = pre_affected.clone();
+            let surviving_affected = search_outbox::find_affected_record_ids(
+                &txn,
+                SearchEntityType::Studio,
+                surviving_id,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            all_affected.extend(surviving_affected);
+            all_affected.sort_unstable();
+            all_affected.dedup();
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Studio,
+                surviving_id,
+                &studio.name,
+                all_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &all_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
+        } else {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Studio,
+                id,
+                &studio.name,
+                pre_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
         }
+
+        txn.commit().await?;
+        Ok(StudioDto::from(studio))
     }
 
     async fn delete_studio(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
+
+        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Studio, id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
         match self.repo.delete(&txn, id).await {
-            Ok(true) => {
-                txn.commit().await?;
-                Ok("Studio deleted successfully".into())
-            }
+            Ok(true) => {}
             Ok(false) => {
                 txn.rollback().await?;
-                Err(AppError::NotFound("Studio not found".into()))
+                return Err(AppError::NotFound("Studio not found".into()));
             }
             Err(e) => {
                 txn.rollback().await.ok();
-                Err(AppError::DatabaseError(e))
+                return Err(AppError::DatabaseError(e));
             }
         }
+
+        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Studio, id, affected.clone())
+            .await
+            .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, &affected)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        txn.commit().await?;
+        Ok("Studio deleted successfully".into())
     }
 
     async fn get_studio_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {

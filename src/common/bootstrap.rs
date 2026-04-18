@@ -7,6 +7,7 @@ use crate::domains::auth::{AuthService, AuthServiceTrait};
 use crate::domains::device::{DeviceService, DeviceServiceTrait};
 use crate::domains::file::{FileService, FileServiceTrait};
 use crate::domains::luna::{LunaService, LunaServiceTrait};
+use crate::domains::search::{SearchService, SearchServiceTrait};
 use crate::domains::user::UserServiceTrait;
 use crate::{common::app_state::AppState, domains::user::UserService};
 
@@ -23,6 +24,8 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
     let device_service: Arc<dyn DeviceServiceTrait> = DeviceService::create_service(pool.clone());
     let luna_service: Arc<dyn LunaServiceTrait> =
         LunaService::create_service(config.clone(), pool.clone());
+    let search_service: Arc<dyn SearchServiceTrait> =
+        SearchService::create_service(config.clone(), pool.clone());
 
     AppState::new(
         config,
@@ -31,6 +34,7 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
         device_service,
         file_service,
         luna_service,
+        search_service,
     )
 }
 
@@ -42,7 +46,7 @@ pub fn setup_tracing() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,sqlx=info,tower_http=info,axum::rejection=trace".into()),
+                .unwrap_or_else(|_| "info,sqlx=warn,tower_http=info,axum::rejection=trace".into()),
         )
         .with(
             tracing_subscriber::fmt::layer()

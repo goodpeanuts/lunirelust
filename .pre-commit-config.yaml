@@ -59,9 +59,19 @@ repos:
         pass_filenames: false
 
       - id: cargo-test
-        name: just test
-        description: prepare test deps and run nextest plus doctests via just
-        entry: bash -c 'just test'
+        name: cargo test suite
+        description: prepare test deps and run nextest plus doctests
+        entry: |
+          bash -ceu '
+          trap '"'"'status=$?; docker compose --env-file .env.test down || true; exit "$status"'"'"' EXIT
+          docker compose --env-file .env.test up -d --wait
+          while IFS= read -r line; do
+            export "$line"
+          done < <(docker compose --env-file .env.test config --environment)
+          cargo run -p migration -- up
+          cargo nextest run --all-features
+          cargo test --quiet --workspace --doc
+          '
         language: rust
         files: \.rs$
         pass_filenames: false

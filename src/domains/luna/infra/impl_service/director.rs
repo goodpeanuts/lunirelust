@@ -1,3 +1,4 @@
+use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
@@ -6,7 +7,7 @@ use crate::{
             CreateDirectorDto, DirectorDto, EntityCountDto, PaginatedResponse, PaginationQuery,
             SearchDirectorDto, UpdateDirectorDto,
         },
-        infra::DirectorRepo,
+        infra::{search_outbox, DirectorRepo},
     },
 };
 use async_trait::async_trait;
@@ -73,13 +74,27 @@ impl DirectorServiceTrait for DirectorService {
         create_dto: CreateDirectorDto,
     ) -> Result<DirectorDto, AppError> {
         let txn = self.db.begin().await?;
-        let director_id = match self.repo.create(&txn, create_dto).await {
-            Ok(id) => id,
+        let entity_name = create_dto.name.clone();
+        let (director_id, was_created) = match self.repo.create(&txn, create_dto).await {
+            Ok(pair) => pair,
             Err(e) => {
                 txn.rollback().await.ok();
                 return Err(AppError::DatabaseError(e));
             }
         };
+
+        if was_created {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Director,
+                director_id,
+                &entity_name,
+                Vec::new(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+        }
+
         txn.commit().await?;
         self.get_director_by_id(director_id).await
     }
@@ -90,38 +105,109 @@ impl DirectorServiceTrait for DirectorService {
         payload: UpdateDirectorDto,
     ) -> Result<DirectorDto, AppError> {
         let txn = self.db.begin().await?;
-        match self.repo.update(&txn, id, payload).await {
-            Ok(Some(director)) => {
-                txn.commit().await?;
-                Ok(DirectorDto::from(director))
-            }
+
+        // Capture affected records BEFORE the update, so we still have them
+        // if the update triggers a duplicate-merge that deletes this entity.
+        let pre_affected =
+            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Director, id)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
+        let director = match self.repo.update(&txn, id, payload).await {
+            Ok(Some(d)) => d,
             Ok(None) => {
                 txn.rollback().await?;
-                Err(AppError::NotFound("Director not found".into()))
+                return Err(AppError::NotFound("Director not found".into()));
             }
             Err(e) => {
                 txn.rollback().await.ok();
-                Err(AppError::DatabaseError(e))
+                return Err(AppError::DatabaseError(e));
             }
+        };
+
+        // Fan-out: find affected records and insert reindex events.
+        // Use the surviving entity's ID (may differ from input after merge).
+        let surviving_id = director.id;
+        if surviving_id != id {
+            // Duplicate-merge: the old entity was deleted. Remove its search doc.
+            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Director, id, vec![])
+                .await
+                .map_err(AppError::DatabaseError)?;
+            // Records that pointed at the old entity need reindexing (their FK
+            // was cascaded). Use the pre-update snapshot since the old row is gone.
+            let mut all_affected = pre_affected.clone();
+            let surviving_affected = search_outbox::find_affected_record_ids(
+                &txn,
+                SearchEntityType::Director,
+                surviving_id,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            all_affected.extend(surviving_affected);
+            all_affected.sort_unstable();
+            all_affected.dedup();
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Director,
+                surviving_id,
+                &director.name,
+                all_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &all_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
+        } else {
+            // Normal update: use the pre-update affected records.
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Director,
+                id,
+                &director.name,
+                pre_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
         }
+
+        txn.commit().await?;
+        Ok(DirectorDto::from(director))
     }
 
     async fn delete_director(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
+
+        // Pre-delete snapshot: find affected records BEFORE delete
+        let affected =
+            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Director, id)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
         match self.repo.delete(&txn, id).await {
-            Ok(true) => {
-                txn.commit().await?;
-                Ok("Director deleted".into())
-            }
+            Ok(true) => {}
             Ok(false) => {
                 txn.rollback().await?;
-                Err(AppError::NotFound("Director not found".into()))
+                return Err(AppError::NotFound("Director not found".into()));
             }
             Err(e) => {
                 txn.rollback().await.ok();
-                Err(AppError::DatabaseError(e))
+                return Err(AppError::DatabaseError(e));
             }
         }
+
+        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Director, id, affected.clone())
+            .await
+            .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, &affected)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        txn.commit().await?;
+        Ok("Director deleted".into())
     }
 
     async fn get_director_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {

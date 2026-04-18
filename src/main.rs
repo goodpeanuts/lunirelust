@@ -36,6 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let config = Config::from_env()?;
     let pool = setup_database(&config).await?;
     let state = build_app_state(&pool, config.clone());
+
+    // Start search indexer exactly once (not in test helpers).
+    state.search_service.trigger_startup_sync();
+
     let app = create_router(state);
 
     let addr = format!("{}:{}", config.service_host, config.service_port);
