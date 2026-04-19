@@ -58,7 +58,6 @@ pub trait SearchRepository: Send + Sync {
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Find record documents missing vector embeddings.
-    #[allow(dead_code)]
     async fn find_records_missing_vectors(
         &self,
         offset: usize,

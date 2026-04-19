@@ -5,7 +5,6 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 /// Current version status of a document.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct DocumentVersion {
     pub entity_type: String,
     pub entity_id: String,

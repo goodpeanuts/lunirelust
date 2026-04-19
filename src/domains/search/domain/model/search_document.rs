@@ -3,8 +3,40 @@
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::{json, Value as JsonValue};
 use utoipa::ToSchema;
+
+fn explicit_vector_opt_out() -> JsonValue {
+    json!({
+        "default": JsonValue::Null
+    })
+}
+
+fn is_explicit_vector_opt_out(value: &JsonValue) -> bool {
+    value.get("default").is_some_and(serde_json::Value::is_null)
+}
+
+fn serialize_vectors<S>(vectors: &Option<JsonValue>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match vectors {
+        Some(value) => value.serialize(serializer),
+        None => explicit_vector_opt_out().serialize(serializer),
+    }
+}
+
+fn deserialize_vectors<'de, D>(deserializer: D) -> Result<Option<JsonValue>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<JsonValue>::deserialize(deserializer)?;
+    Ok(match value {
+        Some(value) if is_explicit_vector_opt_out(&value) => None,
+        other => other,
+    })
+}
 
 /// Represents a document in the `MeiliSearch` unified index `luna_search`.
 /// Record documents include all name fields and permission. Named entities use `permission = 0`.
@@ -34,14 +66,20 @@ pub struct SearchDocument {
     pub idol_names: Option<Vec<String>>,
     /// Vector embeddings for semantic search (only for records)
     /// Serialized as `{"default": [...]}` keyed by embedder name.
-    #[serde(rename = "_vectors", skip_serializing_if = "Option::is_none")]
-    pub vectors: Option<serde_json::Value>,
+    #[serde(
+        default,
+        rename = "_vectors",
+        serialize_with = "serialize_vectors",
+        deserialize_with = "deserialize_vectors"
+    )]
+    pub vectors: Option<JsonValue>,
 }
 
 /// Event types for outbox sync events.
+// allow: test 构建下 dead_code 不触发，expect 会报 unfulfilled
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[allow(dead_code)]
 pub enum SyncEventType {
     Upsert,
     Delete,
@@ -163,12 +201,17 @@ mod tests {
     }
 
     #[test]
-    fn test_search_document_skips_none_vectors() {
+    fn test_search_document_serializes_none_vectors_as_explicit_opt_out() {
         let doc = sample_document();
         let json = serde_json::to_value(&doc).expect("serializing SearchDocument should not fail");
         assert!(
-            json.get("_vectors").is_none(),
-            "vectors should be skipped when None"
+            json.get("_vectors").is_some(),
+            "_vectors should be present even when no embedding exists"
+        );
+        assert_eq!(
+            json["_vectors"],
+            serde_json::json!({"default": null}),
+            "documents without embeddings must explicitly opt out for userProvided embedders"
         );
     }
 
@@ -181,6 +224,26 @@ mod tests {
             json.get("_vectors").is_some(),
             "_vectors should appear when set"
         );
+    }
+
+    #[test]
+    fn test_search_document_deserializes_explicit_opt_out_as_none() {
+        let json = serde_json::json!({
+            "id": "record__abc123",
+            "title": "Test Record",
+            "entity_type": "record",
+            "entity_id": "abc123",
+            "entity_version": 1,
+            "permission": 0,
+            "_vectors": {
+                "default": null
+            }
+        });
+
+        let doc: SearchDocument =
+            serde_json::from_value(json).expect("deserializing SearchDocument should not fail");
+
+        assert!(doc.vectors.is_none());
     }
 
     #[test]

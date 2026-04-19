@@ -16,7 +16,6 @@ struct EmbeddingRequest {
 /// Input can be a single string or array of strings.
 #[derive(Serialize)]
 #[serde(untagged)]
-#[allow(dead_code)]
 enum EmbeddingInput {
     /// Single text input.
     Single(String),
@@ -98,7 +97,6 @@ impl EmbeddingClient {
     }
 
     /// Generate embeddings for a batch of text strings.
-    #[allow(dead_code)]
     pub async fn embed_batch(
         &self,
         texts: &[String],

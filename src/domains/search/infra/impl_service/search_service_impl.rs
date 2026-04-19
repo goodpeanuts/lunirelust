@@ -27,12 +27,11 @@ use super::sql_fallback::search_sql_fallback;
 ///
 /// Delegates to `MeiliSearch` for keyword and hybrid search when the index is ready,
 /// with automatic SQL fallback when `MeiliSearch` is unavailable.
-#[allow(dead_code)]
 pub struct SearchService {
     /// `PostgreSQL` connection for SQL fallback queries and user lookups.
     db: DatabaseConnection,
     /// Application configuration (`MeiliSearch` / vLLM URLs, etc.).
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     config: Config,
     /// `MeiliSearch` repository for index operations.
     search_repo: Arc<MeiliSearchRepo>,
@@ -334,7 +333,6 @@ impl SearchService {
 #[cfg(test)]
 mod tests {
     // --- Hybrid total calculation regression test ---
-
     #[test]
     fn test_hybrid_total_vector_only_results() {
         // When keyword returns 0 but vector search has estimatedTotalHits, use vector total.

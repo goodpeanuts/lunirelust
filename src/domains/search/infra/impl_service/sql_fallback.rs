@@ -46,6 +46,7 @@ pub(super) async fn search_sql_fallback(
     if wants(&SearchEntityType::Record) {
         // Match records by title, or by related entity names via subqueries.
         // This mirrors the MeiliSearch searchable attributes for SQL fallback.
+        let id_match = record::Column::Id.contains(pattern.clone());
         let title_match = record::Column::Title.contains(pattern.clone());
 
         // Subquery: records whose director name matches
@@ -138,7 +139,7 @@ pub(super) async fn search_sql_fallback(
             };
 
         use sea_orm::Condition;
-        let mut record_cond = Condition::any().add(title_match);
+        let mut record_cond = Condition::any().add(id_match).add(title_match);
         if !director_ids.is_empty() {
             record_cond = record_cond.add(record::Column::DirectorId.is_in(director_ids));
         }
@@ -565,6 +566,28 @@ pub(super) async fn search_sql_fallback(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    use sea_orm::{ActiveModelTrait as _, DatabaseConnection, Set};
+
+    use crate::common::config::{setup_database, Config};
+    use crate::entities::record;
+
+    static TEST_ENV_INIT: Once = Once::new();
+
+    fn load_test_env() {
+        TEST_ENV_INIT.call_once(|| {
+            dotenvy::from_filename(".env.test").expect("Failed to load .env.test");
+        });
+    }
+
+    async fn setup_search_test_db() -> DatabaseConnection {
+        load_test_env();
+        let config = Config::from_env().expect("Failed to load config");
+        setup_database(&config)
+            .await
+            .expect("Failed to setup test db")
+    }
 
     #[test]
     fn test_sql_fallback_wants_all_logic() {
@@ -609,5 +632,61 @@ mod tests {
         assert!(wants(&SearchEntityType::Idol));
         assert!(!wants(&SearchEntityType::Record));
         assert!(!wants(&SearchEntityType::Studio));
+    }
+
+    #[tokio::test]
+    async fn test_sql_fallback_matches_record_id() {
+        let db = setup_search_test_db().await;
+        let record_id = format!("sql-fallback-record-{}", uuid::Uuid::new_v4());
+        let today = chrono::Utc::now().date_naive();
+
+        let record_model = record::ActiveModel {
+            id: Set(record_id.clone()),
+            title: Set("Fallback Search Regression Title".to_owned()),
+            date: Set(today),
+            duration: Set(7200),
+            director_id: Set(0),
+            studio_id: Set(0),
+            label_id: Set(0),
+            series_id: Set(0),
+            has_links: Set(false),
+            permission: Set(1),
+            local_img_count: Set(0),
+            create_time: Set(today),
+            update_time: Set(today),
+            creator: Set("sql_fallback_test".to_owned()),
+            modified_by: Set("sql_fallback_test".to_owned()),
+        };
+
+        record_model
+            .insert(&db)
+            .await
+            .expect("Failed to insert regression record");
+
+        let response = search_sql_fallback(
+            &db,
+            &record_id,
+            &[SearchEntityType::Record],
+            "",
+            20,
+            0,
+            i32::MAX,
+        )
+        .await;
+
+        record::Entity::delete_by_id(&record_id)
+            .exec(&db)
+            .await
+            .expect("Failed to clean up regression record");
+
+        let response = response.expect("SQL fallback search should succeed");
+        assert_eq!(response.search_mode, "sql_fallback");
+        assert!(
+            response
+                .results
+                .iter()
+                .any(|item| item.entity_type == SearchEntityType::Record && item.id == record_id),
+            "expected sql fallback search to match the record by id"
+        );
     }
 }

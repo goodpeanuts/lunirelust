@@ -1,9 +1,11 @@
 //! Search domain module: unified full-text + vector search with Meilisearch.
 //!
-//! Clippy's `allow_attributes` lint fires on `#[allow(dead_code)]` annotations
+//! Clippy's `allow_attributes` lint fires on `#[expect(dead_code)]` annotations
 //! used for API-contract scaffolding (batch embedding, entity types, sync events).
 //! These items are intentionally kept for future feature evolution.
 #![allow(clippy::allow_attributes)]
+
+pub mod constants;
 
 mod api {
     mod handlers {

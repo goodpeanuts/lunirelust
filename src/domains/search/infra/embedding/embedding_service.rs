@@ -20,7 +20,6 @@ pub struct EmbeddingService {
     /// Current availability flag, updated by health checks and embed failures.
     available: Arc<AtomicBool>,
     /// Maximum number of texts per batch embedding request.
-    #[allow(dead_code)]
     batch_size: usize,
 }
 
@@ -51,7 +50,6 @@ impl EmbeddingService {
     }
 
     /// Generate embeddings for a batch of texts.
-    #[allow(dead_code)]
     pub async fn embed_batch(&self, texts: &[String]) -> Vec<Option<Vec<f32>>> {
         if !self.available.load(Ordering::Relaxed) || texts.is_empty() {
             return texts.iter().map(|_| None).collect();
@@ -101,6 +99,7 @@ impl EmbeddingService {
     }
 
     /// Force set availability (useful for startup).
+    // allow: test 构建下 dead_code 不触发，expect 会报 unfulfilled
     #[allow(dead_code)]
     pub fn set_available(&self, available: bool) {
         self.available.store(available, Ordering::Relaxed);
