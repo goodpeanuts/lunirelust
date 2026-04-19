@@ -72,7 +72,7 @@ pub fn setup_tracing_opentelemetry(
 
     // Configure log level filter from environment or default to info for application and debug for opentelemetry.
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        "info,opentelemetry=debug"
+        "info,sqlx=warn,opentelemetry=debug"
             .parse()
             .expect("Failed to parse log level filter")
     });

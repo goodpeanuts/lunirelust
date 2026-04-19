@@ -1,9 +1,23 @@
 use crate::domains::luna::{
     domain::Record,
-    dto::{CreateLinkDto, CreateRecordDto, SearchRecordDto, UpdateRecordDto},
+    dto::{
+        CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, SearchRecordDto,
+        UpdateRecordDto,
+    },
 };
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
+
+/// Tracks nested named entities created during a record creation.
+#[derive(Debug, Default)]
+pub struct CreatedNestedEntities {
+    pub director: Option<(i64, String)>,
+    pub studio: Option<(i64, String)>,
+    pub label: Option<(i64, String)>,
+    pub series: Option<(i64, String)>,
+    pub genres: Vec<(i64, String)>,
+    pub idols: Vec<(i64, String)>,
+}
 
 #[async_trait]
 /// Trait representing repository-level operations for record entities.
@@ -25,12 +39,21 @@ pub trait RecordRepository: Send + Sync {
         search_dto: SearchRecordDto,
     ) -> Result<Vec<Record>, DbErr>;
 
+    /// Finds record list with database-level pagination using LIMIT/OFFSET.
+    async fn find_list_paginated(
+        &self,
+        db: &DatabaseConnection,
+        search_dto: SearchRecordDto,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Record>, DbErr>;
+
     /// Creates a new record within an active transaction.
+    /// Returns the record ID and info about any nested named entities created.
     async fn create(
         &self,
         txn: &DatabaseTransaction,
         record: CreateRecordDto,
-    ) -> Result<String, DbErr>;
+    ) -> Result<(String, CreatedNestedEntities), DbErr>;
 
     /// Updates an existing record.
     async fn update(
@@ -59,16 +82,34 @@ pub trait RecordRepository: Send + Sync {
     async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
 
     /// Finds records filtered by genre via JOIN on `record_genre` table.
+    #[expect(dead_code)]
     async fn find_by_genre_id(
         &self,
         db: &DatabaseConnection,
         genre_id: i64,
     ) -> Result<Vec<Record>, DbErr>;
 
+    /// Finds records filtered by genre with database-level pagination.
+    async fn find_by_genre_id_paginated(
+        &self,
+        db: &DatabaseConnection,
+        genre_id: i64,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Record>, DbErr>;
+
     /// Finds records filtered by idol via JOIN on `idol_participation` table.
+    #[expect(dead_code)]
     async fn find_by_idol_id(
         &self,
         db: &DatabaseConnection,
         idol_id: i64,
     ) -> Result<Vec<Record>, DbErr>;
+
+    /// Finds records filtered by idol with database-level pagination.
+    async fn find_by_idol_id_paginated(
+        &self,
+        db: &DatabaseConnection,
+        idol_id: i64,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Record>, DbErr>;
 }

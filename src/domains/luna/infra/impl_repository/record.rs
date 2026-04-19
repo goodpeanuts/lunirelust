@@ -1,395 +1,35 @@
+use super::record_loader::{load_record_with_relations, load_records_batch, load_records_slim};
 use crate::domains::luna::{
     domain::{
-        Director, DirectorRepository as _, GenreRepository as _, IdolRepository as _, Label,
-        LabelRepository as _, Record, RecordRepository, Series, SeriesRepository as _, Studio,
+        CreatedNestedEntities, DirectorRepository as _, GenreRepository as _, IdolRepository as _,
+        LabelRepository as _, Record, RecordRepository, SeriesRepository as _,
         StudioRepository as _,
     },
-    dto::{CreateLinkDto, CreateRecordDto, SearchRecordDto, UpdateRecordDto},
+    dto::{
+        CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, SearchRecordDto,
+        UpdateRecordDto,
+    },
     infra::{DirectorRepo, GenreRepo, IdolRepo, LabelRepo, SeriesRepo, StudioRepo},
 };
-use crate::entities::{
-    director, idol_participation, label, links, record, record_genre, series, studio,
-    DirectorEntity, GenreEntity, IdolEntity, IdolParticipationEntity, LabelEntity, LinksEntity,
-    RecordEntity, RecordGenreEntity, SeriesEntity, StudioEntity,
-};
+use crate::entities::{idol_participation, links, record, record_genre, LinksEntity, RecordEntity};
 use async_trait::async_trait;
 use sea_orm::prelude::Decimal;
 use sea_orm::sea_query::JoinType;
 use sea_orm::{
-    ActiveModelTrait as _, ColumnTrait as _, ConnectionTrait, DatabaseConnection,
-    DatabaseTransaction, DbErr, EntityTrait as _, QueryFilter as _, QuerySelect as _,
-    RelationTrait as _, Set,
+    ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
+    EntityTrait as _, PaginatorTrait as _, QueryFilter as _, QuerySelect as _, RelationTrait as _,
+    Set,
 };
-use std::collections::HashMap;
 
 // Record Repository Implementation
 pub struct RecordRepo;
 
-impl RecordRepo {
-    /// Load a single record with all related data using any connection-like type.
-    async fn load_record_with_relations<C: ConnectionTrait>(
-        db: &C,
-        record_model: record::Model,
-    ) -> Result<Record, DbErr> {
-        // Load basic relations
-        let director = DirectorEntity::find_by_id(record_model.director_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::RecordNotFound("Director not found".to_owned()))?;
-
-        let studio = StudioEntity::find_by_id(record_model.studio_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::RecordNotFound("Studio not found".to_owned()))?;
-
-        let label = LabelEntity::find_by_id(record_model.label_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::RecordNotFound("Label not found".to_owned()))?;
-
-        let series = SeriesEntity::find_by_id(record_model.series_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::RecordNotFound("Series not found".to_owned()))?;
-
-        // Load genres through record_genre
-        let record_genres = RecordGenreEntity::find()
-            .filter(record_genre::Column::RecordId.eq(&record_model.id))
-            .find_also_related(GenreEntity)
-            .all(db)
-            .await?;
-
-        let genres = record_genres
-            .into_iter()
-            .filter_map(|(rg, genre_opt)| {
-                genre_opt.map(|genre| crate::domains::luna::domain::RecordGenre {
-                    genre: crate::domains::luna::domain::Genre::from(genre),
-                    manual: rg.manual,
-                })
-            })
-            .collect();
-
-        // Load idols through idol_participation
-        let idol_participations = IdolParticipationEntity::find()
-            .filter(idol_participation::Column::RecordId.eq(&record_model.id))
-            .find_also_related(IdolEntity)
-            .all(db)
-            .await?;
-
-        let idols = idol_participations
-            .into_iter()
-            .filter_map(|(ip, idol_opt)| {
-                idol_opt.map(|idol| crate::domains::luna::domain::IdolParticipation {
-                    idol: crate::domains::luna::domain::Idol::from(idol),
-                    manual: ip.manual,
-                })
-            })
-            .collect();
-
-        // Load links
-        let links_models = LinksEntity::find()
-            .filter(links::Column::RecordId.eq(&record_model.id))
-            .all(db)
-            .await?;
-
-        let links = links_models
-            .into_iter()
-            .map(crate::domains::luna::domain::Link::from)
-            .collect();
-
-        Ok(Record {
-            id: record_model.id,
-            title: record_model.title,
-            date: record_model.date,
-            duration: record_model.duration,
-            director: Director::from(director),
-            studio: Studio::from(studio),
-            label: Label::from(label),
-            series: Series::from(series),
-            genres,
-            idols,
-            has_links: record_model.has_links,
-            links,
-            permission: record_model.permission,
-            local_img_count: record_model.local_img_count,
-            create_time: record_model.create_time,
-            update_time: record_model.update_time,
-            creator: record_model.creator,
-            modified_by: record_model.modified_by,
-        })
-    }
-
-    /// Batch-load multiple records with all related data using only ~8 queries total
-    /// instead of 7 queries per record (N+1 fix).
-    #[expect(clippy::too_many_lines)]
-    async fn load_records_batch<C: ConnectionTrait>(
-        db: &C,
-        record_models: Vec<record::Model>,
-    ) -> Result<Vec<Record>, DbErr> {
-        if record_models.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let record_ids: Vec<String> = record_models.iter().map(|m| m.id.clone()).collect();
-
-        // Collect all foreign key IDs
-        let director_ids: Vec<i64> = record_models.iter().map(|m| m.director_id).collect();
-        let studio_ids: Vec<i64> = record_models.iter().map(|m| m.studio_id).collect();
-        let label_ids: Vec<i64> = record_models.iter().map(|m| m.label_id).collect();
-        let series_ids: Vec<i64> = record_models.iter().map(|m| m.series_id).collect();
-
-        // Batch load directors (query 1)
-        let directors: HashMap<i64, _> = DirectorEntity::find()
-            .filter(director::Column::Id.is_in(director_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|d| (d.id, d))
-            .collect();
-
-        // Batch load studios (query 2)
-        let studios: HashMap<i64, _> = StudioEntity::find()
-            .filter(studio::Column::Id.is_in(studio_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|s| (s.id, s))
-            .collect();
-
-        // Batch load labels (query 3)
-        let labels: HashMap<i64, _> = LabelEntity::find()
-            .filter(label::Column::Id.is_in(label_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|l| (l.id, l))
-            .collect();
-
-        // Batch load series (query 4)
-        let series_map: HashMap<i64, _> = SeriesEntity::find()
-            .filter(series::Column::Id.is_in(series_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|s| (s.id, s))
-            .collect();
-
-        // Batch load genres (query 5)
-        let all_record_genres = RecordGenreEntity::find()
-            .filter(record_genre::Column::RecordId.is_in(record_ids.clone()))
-            .find_also_related(GenreEntity)
-            .all(db)
-            .await?;
-
-        let genres_by_record: HashMap<String, Vec<crate::domains::luna::domain::RecordGenre>> = {
-            let mut map = HashMap::new();
-            for (rg, genre_opt) in all_record_genres {
-                if let Some(genre) = genre_opt {
-                    let entry = crate::domains::luna::domain::RecordGenre {
-                        genre: crate::domains::luna::domain::Genre::from(genre),
-                        manual: rg.manual,
-                    };
-                    map.entry(rg.record_id.clone())
-                        .or_insert_with(Vec::new)
-                        .push(entry);
-                }
-            }
-            map
-        };
-
-        // Batch load idols (query 6)
-        let all_idol_participations = IdolParticipationEntity::find()
-            .filter(idol_participation::Column::RecordId.is_in(record_ids.clone()))
-            .find_also_related(IdolEntity)
-            .all(db)
-            .await?;
-
-        let idols_by_record: HashMap<String, Vec<crate::domains::luna::domain::IdolParticipation>> = {
-            let mut map = HashMap::new();
-            for (ip, idol_opt) in all_idol_participations {
-                if let Some(idol) = idol_opt {
-                    let entry = crate::domains::luna::domain::IdolParticipation {
-                        idol: crate::domains::luna::domain::Idol::from(idol),
-                        manual: ip.manual,
-                    };
-                    map.entry(ip.record_id.clone())
-                        .or_insert_with(Vec::new)
-                        .push(entry);
-                }
-            }
-            map
-        };
-
-        // Batch load links (query 7)
-        let all_links = LinksEntity::find()
-            .filter(links::Column::RecordId.is_in(record_ids))
-            .all(db)
-            .await?;
-
-        let links_by_record: HashMap<String, Vec<crate::domains::luna::domain::Link>> = {
-            let mut map = HashMap::new();
-            for link_model in all_links {
-                let link = crate::domains::luna::domain::Link::from(link_model);
-                map.entry(link.record_id.clone())
-                    .or_insert_with(Vec::new)
-                    .push(link);
-            }
-            map
-        };
-
-        // Assemble records
-        let mut records = Vec::with_capacity(record_models.len());
-        for record_model in record_models {
-            let director = directors
-                .get(&record_model.director_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Director not found".to_owned()))?;
-            let studio = studios
-                .get(&record_model.studio_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Studio not found".to_owned()))?;
-            let label = labels
-                .get(&record_model.label_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Label not found".to_owned()))?;
-            let series = series_map
-                .get(&record_model.series_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Series not found".to_owned()))?;
-
-            let genres = genres_by_record
-                .get(&record_model.id)
-                .cloned()
-                .unwrap_or_default();
-            let idols = idols_by_record
-                .get(&record_model.id)
-                .cloned()
-                .unwrap_or_default();
-            let links = links_by_record
-                .get(&record_model.id)
-                .cloned()
-                .unwrap_or_default();
-
-            records.push(Record {
-                id: record_model.id,
-                title: record_model.title,
-                date: record_model.date,
-                duration: record_model.duration,
-                director: Director::from(director.clone()),
-                studio: Studio::from(studio.clone()),
-                label: Label::from(label.clone()),
-                series: Series::from(series.clone()),
-                genres,
-                idols,
-                has_links: record_model.has_links,
-                links,
-                permission: record_model.permission,
-                local_img_count: record_model.local_img_count,
-                create_time: record_model.create_time,
-                update_time: record_model.update_time,
-                creator: record_model.creator,
-                modified_by: record_model.modified_by,
-            });
-        }
-
-        Ok(records)
-    }
-
-    /// Batch-load records with only basic fields + direct FK relations
-    /// (director/studio/label/series), skipping genres/idols/links.
-    async fn load_records_slim<C: ConnectionTrait>(
-        db: &C,
-        record_models: Vec<record::Model>,
-    ) -> Result<Vec<Record>, DbErr> {
-        if record_models.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Collect all foreign key IDs
-        let director_ids: Vec<i64> = record_models.iter().map(|m| m.director_id).collect();
-        let studio_ids: Vec<i64> = record_models.iter().map(|m| m.studio_id).collect();
-        let label_ids: Vec<i64> = record_models.iter().map(|m| m.label_id).collect();
-        let series_ids: Vec<i64> = record_models.iter().map(|m| m.series_id).collect();
-
-        // Batch load directors (query 1)
-        let directors: HashMap<i64, _> = DirectorEntity::find()
-            .filter(director::Column::Id.is_in(director_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|d| (d.id, d))
-            .collect();
-
-        // Batch load studios (query 2)
-        let studios: HashMap<i64, _> = StudioEntity::find()
-            .filter(studio::Column::Id.is_in(studio_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|s| (s.id, s))
-            .collect();
-
-        // Batch load labels (query 3)
-        let labels: HashMap<i64, _> = LabelEntity::find()
-            .filter(label::Column::Id.is_in(label_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|l| (l.id, l))
-            .collect();
-
-        // Batch load series (query 4)
-        let series_map: HashMap<i64, _> = SeriesEntity::find()
-            .filter(series::Column::Id.is_in(series_ids))
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|s| (s.id, s))
-            .collect();
-
-        // Assemble records — genres/idols/links left empty for slim mode
-        let mut records = Vec::with_capacity(record_models.len());
-        for record_model in record_models {
-            let director = directors
-                .get(&record_model.director_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Director not found".to_owned()))?;
-            let studio = studios
-                .get(&record_model.studio_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Studio not found".to_owned()))?;
-            let label = labels
-                .get(&record_model.label_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Label not found".to_owned()))?;
-            let series = series_map
-                .get(&record_model.series_id)
-                .ok_or_else(|| DbErr::RecordNotFound("Series not found".to_owned()))?;
-
-            records.push(Record {
-                id: record_model.id,
-                title: record_model.title,
-                date: record_model.date,
-                duration: record_model.duration,
-                director: Director::from(director.clone()),
-                studio: Studio::from(studio.clone()),
-                label: Label::from(label.clone()),
-                series: Series::from(series.clone()),
-                genres: Vec::new(),
-                idols: Vec::new(),
-                has_links: record_model.has_links,
-                links: Vec::new(),
-                permission: record_model.permission,
-                local_img_count: record_model.local_img_count,
-                create_time: record_model.create_time,
-                update_time: record_model.update_time,
-                creator: record_model.creator,
-                modified_by: record_model.modified_by,
-            });
-        }
-
-        Ok(records)
-    }
-}
-
+#[expect(clippy::too_many_lines)]
 #[async_trait]
 impl RecordRepository for RecordRepo {
     async fn find_all(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
         let record_models = RecordEntity::find().all(db).await?;
-        Self::load_records_batch(db, record_models).await
+        load_records_batch(db, record_models).await
     }
 
     async fn find_by_id(
@@ -398,7 +38,7 @@ impl RecordRepository for RecordRepo {
         id: String,
     ) -> Result<Option<Record>, DbErr> {
         if let Some(record_model) = RecordEntity::find_by_id(id).one(db).await? {
-            let record = Self::load_record_with_relations(db, record_model).await?;
+            let record = load_record_with_relations(db, record_model).await?;
             Ok(Some(record))
         } else {
             Ok(None)
@@ -432,51 +72,130 @@ impl RecordRepository for RecordRepo {
         }
 
         let record_models = query.all(db).await?;
-        Self::load_records_batch(db, record_models).await
+        load_records_batch(db, record_models).await
+    }
+
+    async fn find_list_paginated(
+        &self,
+        db: &DatabaseConnection,
+        search_dto: SearchRecordDto,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Record>, DbErr> {
+        let mut query = RecordEntity::find();
+
+        if let Some(id) = search_dto.id {
+            query = query.filter(record::Column::Id.like(format!("%{id}%")));
+        }
+        if let Some(title) = search_dto.title {
+            query = query.filter(record::Column::Title.like(format!("%{title}%")));
+        }
+        if let Some(director_id) = search_dto.director_id {
+            query = query.filter(record::Column::DirectorId.eq(director_id));
+        }
+        if let Some(studio_id) = search_dto.studio_id {
+            query = query.filter(record::Column::StudioId.eq(studio_id));
+        }
+        if let Some(label_id) = search_dto.label_id {
+            query = query.filter(record::Column::LabelId.eq(label_id));
+        }
+        if let Some(series_id) = search_dto.series_id {
+            query = query.filter(record::Column::SeriesId.eq(series_id));
+        }
+
+        let page_size = pagination
+            .limit
+            .filter(|&l| l > 0)
+            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
+            as u64;
+        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+
+        let total_items = query.clone().count(db).await?;
+        let record_models = query
+            .offset(current_offset)
+            .limit(page_size)
+            .all(db)
+            .await?;
+        let records = load_records_batch(db, record_models).await?;
+
+        let next_offset = current_offset + page_size;
+        let next = if next_offset < total_items {
+            Some(format!("?limit={page_size}&offset={next_offset}"))
+        } else {
+            None
+        };
+        let previous = if current_offset > 0 {
+            Some(format!(
+                "?limit={page_size}&offset={}",
+                current_offset.saturating_sub(page_size)
+            ))
+        } else {
+            None
+        };
+
+        Ok(PaginatedResponse {
+            count: total_items as i64,
+            next,
+            previous,
+            results: records,
+        })
     }
 
     async fn create(
         &self,
         txn: &DatabaseTransaction,
         record: CreateRecordDto,
-    ) -> Result<String, DbErr> {
+    ) -> Result<(String, CreatedNestedEntities), DbErr> {
+        use crate::domains::luna::domain::CreatedNestedEntities;
         use chrono::Utc;
         let now = Utc::now().date_naive();
+        let mut nested = CreatedNestedEntities::default();
 
         // Check if record with this ID already exists
         if let Some(_existing_record) = RecordEntity::find_by_id(&record.id).one(txn).await? {
             // Record with this ID already exists, return the existing ID
-            return Ok(record.id);
+            return Ok((record.id, nested));
         }
 
         // Handle director creation or use default
         let director_id = if let Some(director_dto) = record.director {
+            let name = director_dto.name.clone();
             let director_repo = DirectorRepo;
-            director_repo.create(txn, director_dto).await?
+            let (id, _) = director_repo.create(txn, director_dto).await?;
+            nested.director = Some((id, name));
+            id
         } else {
             0 // Default unknown director
         };
 
         // Handle studio creation or use default
         let studio_id = if let Some(studio_dto) = record.studio {
+            let name = studio_dto.name.clone();
             let studio_repo = StudioRepo;
-            studio_repo.create(txn, studio_dto).await?
+            let (id, _) = studio_repo.create(txn, studio_dto).await?;
+            nested.studio = Some((id, name));
+            id
         } else {
             0 // Default unknown studio
         };
 
         // Handle label creation or use default
         let label_id = if let Some(label_dto) = record.label {
+            let name = label_dto.name.clone();
             let label_repo = LabelRepo;
-            label_repo.create(txn, label_dto).await?
+            let (id, _) = label_repo.create(txn, label_dto).await?;
+            nested.label = Some((id, name));
+            id
         } else {
             0 // Default unknown label
         };
 
         // Handle series creation or use default
         let series_id = if let Some(series_dto) = record.series {
+            let name = series_dto.name.clone();
             let series_repo = SeriesRepo;
-            series_repo.create(txn, series_dto).await?
+            let (id, _) = series_repo.create(txn, series_dto).await?;
+            nested.series = Some((id, name));
+            id
         } else {
             0 // Default unknown series
         };
@@ -504,8 +223,10 @@ impl RecordRepository for RecordRepo {
 
         // Handle genre associations
         for genre_dto in record.genres {
+            let name = genre_dto.name.clone();
             let genre_repo = GenreRepo;
-            let genre_id = genre_repo.create(txn, genre_dto).await?;
+            let (genre_id, _) = genre_repo.create(txn, genre_dto).await?;
+            nested.genres.push((genre_id, name));
 
             let record_genre = record_genre::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
@@ -518,8 +239,10 @@ impl RecordRepository for RecordRepo {
 
         // Handle idol associations
         for idol_dto in record.idols {
+            let name = idol_dto.name.clone();
             let idol_repo = IdolRepo;
-            let idol_id = idol_repo.create(txn, idol_dto).await?;
+            let (idol_id, _) = idol_repo.create(txn, idol_dto).await?;
+            nested.idols.push((idol_id, name));
 
             let idol_participation = idol_participation::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
@@ -547,7 +270,7 @@ impl RecordRepository for RecordRepo {
             link_active_model.insert(txn).await?;
         }
 
-        Ok(inserted.id)
+        Ok((inserted.id, nested))
     }
 
     async fn update(
@@ -575,7 +298,7 @@ impl RecordRepository for RecordRepo {
             active_record.modified_by = Set(record.modified_by);
 
             let updated = active_record.update(txn).await?;
-            let record = Self::load_record_with_relations(txn, updated).await?;
+            let record = load_record_with_relations(txn, updated).await?;
             Ok(Some(record))
         } else {
             Ok(None)
@@ -644,7 +367,7 @@ impl RecordRepository for RecordRepo {
 
     async fn find_all_slim(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
         let record_models = RecordEntity::find().all(db).await?;
-        Self::load_records_slim(db, record_models).await
+        load_records_slim(db, record_models).await
     }
 
     async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
@@ -675,7 +398,55 @@ impl RecordRepository for RecordRepo {
             .filter(record_genre::Column::GenreId.eq(genre_id))
             .all(db)
             .await?;
-        Self::load_records_batch(db, record_models).await
+        load_records_batch(db, record_models).await
+    }
+
+    async fn find_by_genre_id_paginated(
+        &self,
+        db: &DatabaseConnection,
+        genre_id: i64,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Record>, DbErr> {
+        let query = RecordEntity::find()
+            .join_rev(JoinType::InnerJoin, record_genre::Relation::Record.def())
+            .filter(record_genre::Column::GenreId.eq(genre_id));
+
+        let page_size = pagination
+            .limit
+            .filter(|&l| l > 0)
+            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
+            as u64;
+        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+
+        let total_items = query.clone().count(db).await?;
+        let record_models = query
+            .offset(current_offset)
+            .limit(page_size)
+            .all(db)
+            .await?;
+        let records = load_records_batch(db, record_models).await?;
+
+        let next_offset = current_offset + page_size;
+        let next = if next_offset < total_items {
+            Some(format!("?limit={page_size}&offset={next_offset}"))
+        } else {
+            None
+        };
+        let previous = if current_offset > 0 {
+            Some(format!(
+                "?limit={page_size}&offset={}",
+                current_offset.saturating_sub(page_size)
+            ))
+        } else {
+            None
+        };
+
+        Ok(PaginatedResponse {
+            count: total_items as i64,
+            next,
+            previous,
+            results: records,
+        })
     }
 
     async fn find_by_idol_id(
@@ -691,6 +462,57 @@ impl RecordRepository for RecordRepo {
             .filter(idol_participation::Column::IdolId.eq(idol_id))
             .all(db)
             .await?;
-        Self::load_records_batch(db, record_models).await
+        load_records_batch(db, record_models).await
+    }
+
+    async fn find_by_idol_id_paginated(
+        &self,
+        db: &DatabaseConnection,
+        idol_id: i64,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<Record>, DbErr> {
+        let query = RecordEntity::find()
+            .join_rev(
+                JoinType::InnerJoin,
+                idol_participation::Relation::Record.def(),
+            )
+            .filter(idol_participation::Column::IdolId.eq(idol_id));
+
+        let page_size = pagination
+            .limit
+            .filter(|&l| l > 0)
+            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
+            as u64;
+        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+
+        let total_items = query.clone().count(db).await?;
+        let record_models = query
+            .offset(current_offset)
+            .limit(page_size)
+            .all(db)
+            .await?;
+        let records = load_records_batch(db, record_models).await?;
+
+        let next_offset = current_offset + page_size;
+        let next = if next_offset < total_items {
+            Some(format!("?limit={page_size}&offset={next_offset}"))
+        } else {
+            None
+        };
+        let previous = if current_offset > 0 {
+            Some(format!(
+                "?limit={page_size}&offset={}",
+                current_offset.saturating_sub(page_size)
+            ))
+        } else {
+            None
+        };
+
+        Ok(PaginatedResponse {
+            count: total_items as i64,
+            next,
+            previous,
+            results: records,
+        })
     }
 }

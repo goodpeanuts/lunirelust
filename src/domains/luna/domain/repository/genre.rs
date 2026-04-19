@@ -34,7 +34,11 @@ pub trait GenreRepository: Send + Sync {
     ) -> Result<PaginatedResponse<Genre>, DbErr>;
 
     /// Creates a new genre record within an active transaction.
-    async fn create(&self, txn: &DatabaseTransaction, genre: CreateGenreDto) -> Result<i64, DbErr>;
+    async fn create(
+        &self,
+        txn: &DatabaseTransaction,
+        genre: CreateGenreDto,
+    ) -> Result<(i64, bool), DbErr>;
 
     /// Updates an existing genre record.
     async fn update(

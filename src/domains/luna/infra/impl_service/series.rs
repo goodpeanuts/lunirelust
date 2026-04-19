@@ -1,3 +1,4 @@
+use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
@@ -6,7 +7,7 @@ use crate::{
             CreateSeriesDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchSeriesDto,
             SeriesDto, UpdateSeriesDto,
         },
-        infra::SeriesRepo,
+        infra::{search_outbox, SeriesRepo},
     },
 };
 use async_trait::async_trait;
@@ -86,11 +87,24 @@ impl SeriesServiceTrait for SeriesService {
     async fn create_series(&self, create_dto: CreateSeriesDto) -> Result<SeriesDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let id = self
+        let entity_name = create_dto.name.clone();
+        let (id, was_created) = self
             .repo
             .create(&txn, create_dto)
             .await
             .map_err(AppError::DatabaseError)?;
+
+        if was_created {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Series,
+                id,
+                &entity_name,
+                Vec::new(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+        }
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
 
@@ -104,21 +118,76 @@ impl SeriesServiceTrait for SeriesService {
     ) -> Result<SeriesDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
+        let pre_affected =
+            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Series, id)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
         let updated_series = self
             .repo
             .update(&txn, id, update_dto)
             .await
             .map_err(AppError::DatabaseError)?;
 
+        let Some(series) = updated_series else {
+            txn.rollback().await.map_err(AppError::DatabaseError)?;
+            return Err(AppError::NotFound("Series not found".into()));
+        };
+
+        let surviving_id = series.id;
+        if surviving_id != id {
+            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Series, id, vec![])
+                .await
+                .map_err(AppError::DatabaseError)?;
+            let mut all_affected = pre_affected.clone();
+            let surviving_affected = search_outbox::find_affected_record_ids(
+                &txn,
+                SearchEntityType::Series,
+                surviving_id,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            all_affected.extend(surviving_affected);
+            all_affected.sort_unstable();
+            all_affected.dedup();
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Series,
+                surviving_id,
+                &series.name,
+                all_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &all_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
+        } else {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Series,
+                id,
+                &series.name,
+                pre_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
+        }
+
         txn.commit().await.map_err(AppError::DatabaseError)?;
 
-        updated_series
-            .map(SeriesDto::from)
-            .ok_or_else(|| AppError::NotFound("Series not found".into()))
+        Ok(SeriesDto::from(series))
     }
 
     async fn delete_series(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
+
+        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Series, id)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
         let deleted = self
             .repo
@@ -126,13 +195,20 @@ impl SeriesServiceTrait for SeriesService {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        if deleted {
-            txn.commit().await.map_err(AppError::DatabaseError)?;
-            Ok("Series deleted successfully".to_owned())
-        } else {
+        if !deleted {
             txn.rollback().await.map_err(AppError::DatabaseError)?;
-            Err(AppError::NotFound("Series not found".into()))
+            return Err(AppError::NotFound("Series not found".into()));
         }
+
+        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Series, id, affected.clone())
+            .await
+            .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, &affected)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        txn.commit().await.map_err(AppError::DatabaseError)?;
+        Ok("Series deleted successfully".to_owned())
     }
 
     /// Gets record counts grouped by series.

@@ -131,7 +131,7 @@ macro_rules! impl_named_entity_repo {
                 &self,
                 txn: &sea_orm::DatabaseTransaction,
                 dto: $create_dto,
-            ) -> Result<i64, sea_orm::DbErr> {
+            ) -> Result<(i64, bool), sea_orm::DbErr> {
                 let name = dto.name;
                 let link = dto.link.unwrap_or_default();
                 let manual = dto.manual.unwrap_or(false);
@@ -143,7 +143,7 @@ macro_rules! impl_named_entity_repo {
                     .one(txn)
                     .await?;
                 if let Some(e) = existing {
-                    return Ok(e.id);
+                    return Ok((e.id, false));
                 }
 
                 let active_model = $entity_mod::ActiveModel {
@@ -153,7 +153,7 @@ macro_rules! impl_named_entity_repo {
                     ..Default::default()
                 };
                 let inserted = active_model.insert(txn).await?;
-                Ok(inserted.id)
+                Ok((inserted.id, true))
             }
 
             async fn update(
@@ -298,7 +298,7 @@ macro_rules! impl_named_entity_repo {
                 &self,
                 txn: &sea_orm::DatabaseTransaction,
                 dto: $create_dto,
-            ) -> Result<i64, sea_orm::DbErr> {
+            ) -> Result<(i64, bool), sea_orm::DbErr> {
                 let name = dto.name;
                 let link = dto.link.unwrap_or_default();
                 let manual = dto.manual.unwrap_or(false);
@@ -310,7 +310,7 @@ macro_rules! impl_named_entity_repo {
                     .one(txn)
                     .await?;
                 if let Some(e) = existing {
-                    return Ok(e.id);
+                    return Ok((e.id, false));
                 }
 
                 let active_model = $entity_mod::ActiveModel {
@@ -320,7 +320,7 @@ macro_rules! impl_named_entity_repo {
                     ..Default::default()
                 };
                 let inserted = active_model.insert(txn).await?;
-                Ok(inserted.id)
+                Ok((inserted.id, true))
             }
 
             async fn update(

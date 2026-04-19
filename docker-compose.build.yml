@@ -4,12 +4,17 @@
 
 services:
   vllm:
-    image: vllm/vllm-openai:latest
+    # Pin the image version so CLI changes in `latest` do not break startup.
+    image: vllm/vllm-openai:v0.19.0
     container_name: ${COMPOSE_PROJECT_NAME}-vllm
     restart: unless-stopped
     command: >
-      --model BAAI/bge-m3
-      --task embed
+      BAAI/bge-m3
+      --runner pooling
+      --gpu-memory-utilization 0.6
+      --max-model-len 2048
+      --max-num-batched-tokens 2048
+      --max-num-seqs 32
       --port 8000
       --trust-remote-code
     ports:
@@ -36,6 +41,8 @@ services:
       - "${SERVICE_PORT:-8012}:${SERVICE_PORT:-8012}"
     env_file:
       - ${DEPLOY_ENV_FILE}
+    volumes:
+      - ${ASSETS_DATA_PATH:-./subm/luna/data/assets}:/app/${ASSETS_HOME_PATH:-assets}
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MEILI_URL=http://meilisearch:7700

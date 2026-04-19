@@ -33,7 +33,11 @@ pub trait LabelRepository: Send + Sync {
     ) -> Result<PaginatedResponse<Label>, DbErr>;
 
     /// Creates a new label record within an active transaction.
-    async fn create(&self, txn: &DatabaseTransaction, label: CreateLabelDto) -> Result<i64, DbErr>;
+    async fn create(
+        &self,
+        txn: &DatabaseTransaction,
+        label: CreateLabelDto,
+    ) -> Result<(i64, bool), DbErr>;
 
     /// Updates an existing label record.
     async fn update(

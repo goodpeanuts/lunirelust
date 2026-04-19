@@ -1,3 +1,4 @@
+use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
@@ -6,7 +7,7 @@ use crate::{
             CreateGenreDto, EntityCountDto, GenreDto, PaginatedResponse, PaginationQuery,
             SearchGenreDto, UpdateGenreDto,
         },
-        infra::GenreRepo,
+        infra::{search_outbox, GenreRepo},
     },
 };
 use async_trait::async_trait;
@@ -67,13 +68,27 @@ impl GenreServiceTrait for GenreService {
 
     async fn create_genre(&self, create_dto: CreateGenreDto) -> Result<GenreDto, AppError> {
         let txn = self.db.begin().await?;
-        let genre_id = match self.repo.create(&txn, create_dto).await {
-            Ok(id) => id,
+        let entity_name = create_dto.name.clone();
+        let (genre_id, was_created) = match self.repo.create(&txn, create_dto).await {
+            Ok(pair) => pair,
             Err(e) => {
                 txn.rollback().await.ok();
                 return Err(AppError::DatabaseError(e));
             }
         };
+
+        if was_created {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Genre,
+                genre_id,
+                &entity_name,
+                Vec::new(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+        }
+
         txn.commit().await?;
         self.get_genre_by_id(genre_id).await
     }
@@ -84,38 +99,99 @@ impl GenreServiceTrait for GenreService {
         update_dto: UpdateGenreDto,
     ) -> Result<GenreDto, AppError> {
         let txn = self.db.begin().await?;
-        match self.repo.update(&txn, id, update_dto).await {
-            Ok(Some(genre)) => {
-                txn.commit().await?;
-                Ok(GenreDto::from(genre))
-            }
+
+        let pre_affected =
+            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Genre, id)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
+        let genre = match self.repo.update(&txn, id, update_dto).await {
+            Ok(Some(g)) => g,
             Ok(None) => {
                 txn.rollback().await?;
-                Err(AppError::NotFound("Genre not found".into()))
+                return Err(AppError::NotFound("Genre not found".into()));
             }
             Err(e) => {
                 txn.rollback().await.ok();
-                Err(AppError::DatabaseError(e))
+                return Err(AppError::DatabaseError(e));
             }
+        };
+
+        let surviving_id = genre.id;
+        if surviving_id != id {
+            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Genre, id, vec![])
+                .await
+                .map_err(AppError::DatabaseError)?;
+            let mut all_affected = pre_affected.clone();
+            let surviving_affected = search_outbox::find_affected_record_ids(
+                &txn,
+                SearchEntityType::Genre,
+                surviving_id,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            all_affected.extend(surviving_affected);
+            all_affected.sort_unstable();
+            all_affected.dedup();
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Genre,
+                surviving_id,
+                &genre.name,
+                all_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &all_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
+        } else {
+            search_outbox::outbox_entity_upsert(
+                &txn,
+                SearchEntityType::Genre,
+                id,
+                &genre.name,
+                pre_affected.clone(),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+                .await
+                .map_err(AppError::DatabaseError)?;
         }
+
+        txn.commit().await?;
+        Ok(GenreDto::from(genre))
     }
 
     async fn delete_genre(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
+
+        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Genre, id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
         match self.repo.delete(&txn, id).await {
-            Ok(true) => {
-                txn.commit().await?;
-                Ok("Genre deleted successfully".to_owned())
-            }
+            Ok(true) => {}
             Ok(false) => {
                 txn.rollback().await?;
-                Err(AppError::NotFound("Genre not found".into()))
+                return Err(AppError::NotFound("Genre not found".into()));
             }
             Err(e) => {
                 txn.rollback().await.ok();
-                Err(AppError::DatabaseError(e))
+                return Err(AppError::DatabaseError(e));
             }
         }
+
+        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Genre, id, affected.clone())
+            .await
+            .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, &affected)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        txn.commit().await?;
+        Ok("Genre deleted successfully".to_owned())
     }
 
     async fn get_genre_record_counts(&self) -> Result<Vec<EntityCountDto>, AppError> {

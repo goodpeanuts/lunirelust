@@ -42,6 +42,15 @@ pub struct Config {
     pub asset_max_size: usize,
 
     pub cors_origins: Vec<String>,
+
+    // MeiliSearch configuration
+    pub meili_url: String,
+    pub meili_master_key: String,
+
+    // vLLM embedding configuration
+    pub vllm_embedding_url: String,
+    pub vllm_embedding_model: String,
+    pub vllm_embedding_timeout_secs: u64,
 }
 
 /// `from_env` reads the environment variables and returns a Config struct.
@@ -90,6 +99,17 @@ impl Config {
             cors_origins: env::var("CORS_ORIGINS")
                 .map(|s| s.split(',').map(|o| o.trim().to_owned()).collect())
                 .unwrap_or_default(),
+
+            meili_url: env::var("MEILI_URL").unwrap_or_else(|_| "http://localhost:7700".to_owned()),
+            meili_master_key: env::var("MEILI_MASTER_KEY")
+                .unwrap_or_else(|_| "meili_master_key_dev".to_owned()),
+            vllm_embedding_url: env::var("VLLM_EMBEDDING_URL")
+                .unwrap_or_else(|_| "http://localhost:8000".to_owned()),
+            vllm_embedding_model: env::var("VLLM_EMBEDDING_MODEL")
+                .unwrap_or_else(|_| "BAAI/bge-m3".to_owned()),
+            vllm_embedding_timeout_secs: env::var("VLLM_EMBEDDING_TIMEOUT")
+                .map(|s| s.parse::<u64>().unwrap_or(5))
+                .unwrap_or(5),
         })
     }
 }

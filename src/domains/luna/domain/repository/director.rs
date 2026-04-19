@@ -38,7 +38,7 @@ pub trait DirectorRepository: Send + Sync {
         &self,
         txn: &DatabaseTransaction,
         director: CreateDirectorDto,
-    ) -> Result<i64, DbErr>;
+    ) -> Result<(i64, bool), DbErr>;
 
     /// Updates an existing director record.
     async fn update(

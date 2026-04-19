@@ -12,6 +12,7 @@ mod m20250809_123000_create_links_table;
 mod m20250809_124000_seed_default_data;
 mod m20250809_125000_create_tag_tables;
 mod m20250813_130000_create_admin_user;
+mod m20260408_000001_create_search_tables;
 
 pub struct Migrator;
 
@@ -31,6 +32,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250809_125000_create_tag_tables::Migration),
             Box::new(m20250809_124000_seed_default_data::Migration),
             Box::new(m20250813_130000_create_admin_user::Migration),
+            Box::new(m20260408_000001_create_search_tables::Migration),
         ]
     }
 }

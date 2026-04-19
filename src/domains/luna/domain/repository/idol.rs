@@ -34,7 +34,11 @@ pub trait IdolRepository: Send + Sync {
     ) -> Result<PaginatedResponse<Idol>, DbErr>;
 
     /// Creates a new idol record within an active transaction.
-    async fn create(&self, txn: &DatabaseTransaction, idol: CreateIdolDto) -> Result<i64, DbErr>;
+    async fn create(
+        &self,
+        txn: &DatabaseTransaction,
+        idol: CreateIdolDto,
+    ) -> Result<(i64, bool), DbErr>;
 
     /// Updates an existing idol record.
     async fn update(

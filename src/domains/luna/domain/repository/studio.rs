@@ -37,7 +37,7 @@ pub trait StudioRepository: Send + Sync {
         &self,
         txn: &DatabaseTransaction,
         studio: CreateStudioDto,
-    ) -> Result<i64, DbErr>;
+    ) -> Result<(i64, bool), DbErr>;
 
     /// Updates an existing studio record.
     async fn update(

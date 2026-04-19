@@ -157,6 +157,14 @@ docker-compose up
 docker-compose up -d
 ```
 
+For the full local stack used by search indexing and embeddings, run:
+
+```bash
+just build
+```
+
+This starts the app together with PostgreSQL, MeiliSearch, and a pinned `vllm/vllm-openai:v0.19.0` container. The vLLM service is configured with the current pooling-model CLI (`BAAI/bge-m3 --runner pooling`) instead of the removed `--task embed` flag, and caps GPU usage to about `3.6 GiB` on a `6 GiB` card via `--gpu-memory-utilization 0.6`, a shortened maximum sequence length (`--max-model-len 2048`), and reduced batching limits (`--max-num-batched-tokens 2048 --max-num-seqs 32`).
+
 ### Testing
 
 ```bash

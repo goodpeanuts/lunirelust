@@ -1,0 +1,21 @@
+# Docker ignore file
+db/
+target/
+.git/
+.gitignore
+.gitmodules
+.env
+.env.test
+<!-- Cargo.lock -->
+justfile
+Dockerfile
+docker-compose.yml
+docker-compose.build.yml
+tests/
+assets/
+README.md
+CLAUDE.md
+openspec/
+xdoc/
+subm/
+<!-- subm/luna/data/db/ -->

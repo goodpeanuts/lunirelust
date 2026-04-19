@@ -59,8 +59,8 @@ mod domain {
 
     pub use repository::{
         director::DirectorRepository, genre::GenreRepository, idol::IdolRepository,
-        label::LabelRepository, record::RecordRepository, series::SeriesRepository,
-        studio::StudioRepository,
+        label::LabelRepository, record::CreatedNestedEntities, record::RecordRepository,
+        series::SeriesRepository, studio::StudioRepository,
     };
 }
 
@@ -101,6 +101,7 @@ mod infra {
         pub(super) mod idol;
         pub(super) mod label;
         pub(super) mod record;
+        pub(super) mod record_loader;
         pub(super) mod series;
         pub(super) mod studio;
     }
@@ -109,6 +110,7 @@ mod infra {
     };
 
     pub mod impl_service;
+    pub mod search_outbox;
 }
 
 // Re-export commonly used items for convenience
