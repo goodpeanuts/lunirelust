@@ -1,4 +1,5 @@
 use crate::common::error::AppError;
+use crate::domains::luna::dto::{PaginatedResponse, PaginationQuery};
 
 use super::super::model::user_interaction::InteractionStatus;
 
@@ -27,4 +28,11 @@ pub trait InteractionServiceTrait: Send + Sync {
         user_id: &str,
         record_ids: &[String],
     ) -> Result<HashMap<String, InteractionStatus>, AppError>;
+
+    /// Get paginated record IDs the user has viewed.
+    async fn get_viewed_record_ids_paginated(
+        &self,
+        user_id: &str,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<String>, AppError>;
 }

@@ -1,6 +1,5 @@
 mod api {
     mod handlers;
-    pub mod interaction_handlers;
     pub mod routes;
 }
 

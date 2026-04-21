@@ -76,11 +76,35 @@ pub trait RecordRepository: Send + Sync {
         new_links: Vec<CreateLinkDto>,
     ) -> Result<i32, DbErr>;
 
-    /// Retrieves all record slim data from the database.
-    async fn find_all_slim(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr>;
+    /// Retrieves all record slim data from the database, optionally filtered by user interaction.
+    async fn find_all_slim(
+        &self,
+        db: &DatabaseConnection,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<Record>, DbErr>;
 
-    /// Retrieves all record IDs from the database.
-    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+    /// Retrieves all record IDs from the database, optionally filtered by user interaction.
+    async fn find_all_ids(
+        &self,
+        db: &DatabaseConnection,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<String>, DbErr>;
+
+    /// Retrieves record IDs with database-level pagination and optional user filtering.
+    async fn find_ids_paginated(
+        &self,
+        db: &DatabaseConnection,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<String>, DbErr>;
+
+    /// Retrieves slim records with database-level pagination and optional user filtering.
+    async fn find_all_slim_paginated(
+        &self,
+        db: &DatabaseConnection,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<Record>, DbErr>;
 
     /// Finds records filtered by genre via JOIN on `record_genre` table.
     #[expect(dead_code)]

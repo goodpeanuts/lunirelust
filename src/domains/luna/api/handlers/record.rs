@@ -12,13 +12,13 @@ use validator::Validate as _;
 
 /// Build a `UserFilter` from query params and claims.
 fn build_user_filter(pagination: &PaginationQuery, claims: &Claims) -> Option<UserFilter> {
-    pagination
-        .liked_only
-        .unwrap_or(false)
-        .then_some(UserFilter {
-            user_id: claims.sub.clone(),
-            liked_only: true,
-        })
+    let liked = pagination.liked_only.unwrap_or(false);
+    let viewed = pagination.viewed_only.unwrap_or(false);
+    (liked || viewed).then_some(UserFilter {
+        user_id: claims.sub.clone(),
+        liked_only: liked,
+        viewed_only: viewed,
+    })
 }
 
 /// Attach interaction status to a list of `RecordDto`.
@@ -270,11 +270,15 @@ pub async fn get_records_by_director(
     let liked_only = params
         .get("liked_only")
         .and_then(|s| s.parse::<bool>().ok());
+    let viewed_only = params
+        .get("viewed_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
     let pagination = PaginationQuery {
         limit,
         offset,
         liked_only,
+        viewed_only,
     };
     let user_filter = build_user_filter(&pagination, &claims);
 
@@ -310,11 +314,15 @@ pub async fn get_records_by_studio(
     let liked_only = params
         .get("liked_only")
         .and_then(|s| s.parse::<bool>().ok());
+    let viewed_only = params
+        .get("viewed_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
     let pagination = PaginationQuery {
         limit,
         offset,
         liked_only,
+        viewed_only,
     };
     let user_filter = build_user_filter(&pagination, &claims);
 
@@ -350,11 +358,15 @@ pub async fn get_records_by_label(
     let liked_only = params
         .get("liked_only")
         .and_then(|s| s.parse::<bool>().ok());
+    let viewed_only = params
+        .get("viewed_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
     let pagination = PaginationQuery {
         limit,
         offset,
         liked_only,
+        viewed_only,
     };
     let user_filter = build_user_filter(&pagination, &claims);
 
@@ -390,11 +402,15 @@ pub async fn get_records_by_series(
     let liked_only = params
         .get("liked_only")
         .and_then(|s| s.parse::<bool>().ok());
+    let viewed_only = params
+        .get("viewed_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
     let pagination = PaginationQuery {
         limit,
         offset,
         liked_only,
+        viewed_only,
     };
     let user_filter = build_user_filter(&pagination, &claims);
 
@@ -430,11 +446,15 @@ pub async fn get_records_by_genre(
     let liked_only = params
         .get("liked_only")
         .and_then(|s| s.parse::<bool>().ok());
+    let viewed_only = params
+        .get("viewed_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
     let pagination = PaginationQuery {
         limit,
         offset,
         liked_only,
+        viewed_only,
     };
     let user_filter = build_user_filter(&pagination, &claims);
 
@@ -470,11 +490,15 @@ pub async fn get_records_by_idol(
     let liked_only = params
         .get("liked_only")
         .and_then(|s| s.parse::<bool>().ok());
+    let viewed_only = params
+        .get("viewed_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
     let pagination = PaginationQuery {
         limit,
         offset,
         liked_only,
+        viewed_only,
     };
     let user_filter = build_user_filter(&pagination, &claims);
 
@@ -489,18 +513,24 @@ pub async fn get_records_by_idol(
 
 #[utoipa::path(
     get,
-    path = "/cards/records/slim",
+    path = "/cards/records/slim/all",
+    params(
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
+    ),
     responses((status = 200, description = "Get all record slim data", body = Vec<RecordSlimDto>)),
     tag = "Records"
 )]
-pub async fn get_all_record_slim(
+pub async fn get_all_record_slim_all(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    let user_filter = build_user_filter(&pagination, &claims);
     let mut records = state
         .luna_service
         .record_service()
-        .get_all_record_slim()
+        .get_all_record_slim(user_filter)
         .await?;
     attach_interaction_status_slim(&state, &claims.sub, &mut records).await?;
     Ok(RestApiResponse::success(records))
@@ -508,34 +538,77 @@ pub async fn get_all_record_slim(
 
 #[utoipa::path(
     get,
-    path = "/cards/records/ids",
+    path = "/cards/records/slim",
     params(
-        ("limit" = Option<i64>, Query, description = "Limit for pagination (optional)"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination (optional)")
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
-    responses((status = 200, description = "Get all record IDs with optional pagination", body = Vec<String>)),
+    responses((status = 200, description = "Get slim records with pagination", body = PaginatedResponse<RecordSlimDto>)),
     tag = "Records"
 )]
-pub async fn get_all_record_ids(
+pub async fn get_record_slim_paginated(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let all_ids = state
+    let user_filter = build_user_filter(&pagination, &claims);
+    let mut result = state
         .luna_service
         .record_service()
-        .get_all_record_ids()
+        .get_record_slim_paginated(pagination, user_filter)
         .await?;
+    attach_interaction_status_slim(&state, &claims.sub, &mut result.results).await?;
+    Ok(RestApiResponse::success(result))
+}
 
-    // Handle pagination - if no pagination params provided, return all IDs
-    if pagination.limit.is_none() && pagination.offset.is_none() {
-        Ok(RestApiResponse::success(all_ids))
-    } else {
-        let limit = pagination.limit.unwrap_or(10) as usize;
-        let offset = pagination.offset.unwrap_or(0) as usize;
+#[utoipa::path(
+    get,
+    path = "/cards/records/ids/all",
+    params(
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
+    ),
+    responses((status = 200, description = "Get all record IDs", body = Vec<String>)),
+    tag = "Records"
+)]
+pub async fn get_all_record_ids_all(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let user_filter = build_user_filter(&pagination, &claims);
+    let ids = state
+        .luna_service
+        .record_service()
+        .get_all_record_ids(user_filter)
+        .await?;
+    Ok(RestApiResponse::success(ids))
+}
 
-        let paginated_ids: Vec<String> = all_ids.into_iter().skip(offset).take(limit).collect();
-
-        Ok(RestApiResponse::success(paginated_ids))
-    }
+#[utoipa::path(
+    get,
+    path = "/cards/records/ids",
+    params(
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
+    ),
+    responses((status = 200, description = "Get record IDs with pagination", body = PaginatedResponse<String>)),
+    tag = "Records"
+)]
+pub async fn get_record_ids_paginated(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let user_filter = build_user_filter(&pagination, &claims);
+    let result = state
+        .luna_service
+        .record_service()
+        .get_record_ids_paginated(pagination, user_filter)
+        .await?;
+    Ok(RestApiResponse::success(result))
 }

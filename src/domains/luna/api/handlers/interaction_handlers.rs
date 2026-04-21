@@ -1,7 +1,10 @@
 use crate::{
     common::{app_state::AppState, dto::RestApiResponse, error::AppError, jwt::Claims},
-    domains::user::dto::interaction_dto::{
-        BatchStatusRequestDto, InteractionStatusDto, MarkViewedResponse, ToggleLikeResponse,
+    domains::{
+        luna::dto::{PaginatedResponse, PaginationQuery},
+        user::dto::interaction_dto::{
+            BatchStatusRequestDto, InteractionStatusDto, MarkViewedResponse, ToggleLikeResponse,
+        },
     },
 };
 
@@ -10,14 +13,14 @@ use std::collections::HashMap;
 
 #[utoipa::path(
     post,
-    path = "/user/me/records/{id}/like",
+    path = "/cards/records/user/{id}/like",
     responses(
         (status = 200, description = "Like toggled", body = ToggleLikeResponse)
     ),
     security(
         ("bearer_auth" = [])
     ),
-    tag = "User Interactions"
+    tag = "Records"
 )]
 pub async fn toggle_like(
     State(state): State<AppState>,
@@ -34,14 +37,14 @@ pub async fn toggle_like(
 
 #[utoipa::path(
     post,
-    path = "/user/me/records/{id}/viewed",
+    path = "/cards/records/user/{id}/viewed",
     responses(
         (status = 200, description = "Record marked as viewed", body = MarkViewedResponse)
     ),
     security(
         ("bearer_auth" = [])
     ),
-    tag = "User Interactions"
+    tag = "Records"
 )]
 pub async fn mark_viewed(
     State(state): State<AppState>,
@@ -60,7 +63,7 @@ pub async fn mark_viewed(
 
 #[utoipa::path(
     post,
-    path = "/user/me/records/status",
+    path = "/cards/records/user/status",
     request_body = BatchStatusRequestDto,
     responses(
         (status = 200, description = "Batch interaction status", body = HashMap<String, InteractionStatusDto>)
@@ -68,7 +71,7 @@ pub async fn mark_viewed(
     security(
         ("bearer_auth" = [])
     ),
-    tag = "User Interactions"
+    tag = "Records"
 )]
 pub async fn batch_status(
     State(state): State<AppState>,
@@ -97,4 +100,30 @@ pub async fn batch_status(
         .collect();
 
     Ok(RestApiResponse::success(results))
+}
+
+#[utoipa::path(
+    get,
+    path = "/cards/records/user/viewed",
+    params(
+        ("limit" = Option<i64>, Query, description = "Limit for pagination"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+    ),
+    responses((status = 200, description = "Viewed record IDs", body = PaginatedResponse<String>)),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Records"
+)]
+pub async fn get_viewed_record_ids(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let result = state
+        .user_service
+        .interaction_service()
+        .get_viewed_record_ids_paginated(&claims.sub, pagination)
+        .await?;
+    Ok(RestApiResponse::success(result))
 }

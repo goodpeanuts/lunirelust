@@ -34,4 +34,14 @@ pub trait InteractionRepository: Send + Sync {
         user_id: &str,
         record_ids: &[String],
     ) -> Result<std::collections::HashMap<String, InteractionStatus>, DbErr>;
+
+    /// Retrieves paginated record IDs that the user has viewed.
+    /// Returns (IDs, total count).
+    async fn find_viewed_record_ids_paginated(
+        &self,
+        db: &DatabaseConnection,
+        user_id: &str,
+        limit: u64,
+        offset: u64,
+    ) -> Result<(Vec<String>, u64), DbErr>;
 }

@@ -89,24 +89,64 @@ impl RecordServiceTrait for RecordService {
         Ok(records.into_iter().map(RecordDto::from).collect())
     }
 
-    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError> {
+    async fn get_all_record_ids(
+        &self,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<String>, AppError> {
         let ids = self
             .repo
-            .find_all_ids(&self.db)
+            .find_all_ids(&self.db, user_filter)
             .await
             .map_err(AppError::DatabaseError)?;
 
         Ok(ids)
     }
 
-    async fn get_all_record_slim(&self) -> Result<Vec<RecordSlimDto>, AppError> {
+    async fn get_all_record_slim(
+        &self,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<RecordSlimDto>, AppError> {
         let records = self
             .repo
-            .find_all_slim(&self.db)
+            .find_all_slim(&self.db, user_filter)
             .await
             .map_err(AppError::DatabaseError)?;
 
         Ok(records.into_iter().map(RecordSlimDto::from).collect())
+    }
+
+    async fn get_record_ids_paginated(
+        &self,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<String>, AppError> {
+        self.repo
+            .find_ids_paginated(&self.db, pagination, user_filter)
+            .await
+            .map_err(AppError::DatabaseError)
+    }
+
+    async fn get_record_slim_paginated(
+        &self,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<RecordSlimDto>, AppError> {
+        let paginated = self
+            .repo
+            .find_all_slim_paginated(&self.db, pagination, user_filter)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated
+                .results
+                .into_iter()
+                .map(RecordSlimDto::from)
+                .collect(),
+        })
     }
 
     async fn create_record(&self, create_dto: CreateRecordDto) -> Result<RecordDto, AppError> {

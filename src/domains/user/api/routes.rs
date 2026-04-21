@@ -1,23 +1,12 @@
-use super::{
-    handlers::{
-        __path_create_user, __path_delete_user, __path_get_current_user, __path_get_user_by_id,
-        __path_get_user_list, __path_get_users, __path_update_user, create_user, delete_user,
-        get_current_user, get_user_by_id, get_user_list, get_users, update_user,
-    },
-    interaction_handlers::{
-        __path_batch_status, __path_mark_viewed, __path_toggle_like, batch_status, mark_viewed,
-        toggle_like,
-    },
+use super::handlers::{
+    __path_create_user, __path_delete_user, __path_get_current_user, __path_get_user_by_id,
+    __path_get_user_list, __path_get_users, __path_update_user, create_user, delete_user,
+    get_current_user, get_user_by_id, get_user_list, get_users, update_user,
 };
 
 use crate::{
     common::app_state::AppState,
-    domains::user::dto::{
-        interaction_dto::{
-            BatchStatusRequestDto, InteractionStatusDto, MarkViewedResponse, ToggleLikeResponse,
-        },
-        user_dto::{CreateUserMultipartDto, SearchUserDto, UpdateUserDto, UserDto},
-    },
+    domains::user::dto::user_dto::{CreateUserMultipartDto, SearchUserDto, UpdateUserDto, UserDto},
 };
 
 use axum::{
@@ -39,17 +28,12 @@ use crate::common::openapi::SecurityAddon;
         update_user,
         delete_user,
         get_current_user,
-        toggle_like,
-        mark_viewed,
-        batch_status,
     ),
     components(schemas(
         UserDto, SearchUserDto, CreateUserMultipartDto, UpdateUserDto,
-        InteractionStatusDto, BatchStatusRequestDto, ToggleLikeResponse, MarkViewedResponse
     )),
     tags(
         (name = "Users", description = "User management endpoints"),
-        (name = "User Interactions", description = "User-record interaction endpoints")
     ),
     security(
         ("bearer_auth" = [])
@@ -65,9 +49,6 @@ pub fn user_routes() -> Router<AppState> {
         .route("/", post(create_user))
         .route("/list", post(get_user_list))
         .route("/me", get(get_current_user))
-        .route("/me/records/{id}/like", post(toggle_like))
-        .route("/me/records/{id}/viewed", post(mark_viewed))
-        .route("/me/records/status", post(batch_status))
         .route("/{id}", get(get_user_by_id))
         .route("/{id}", put(update_user))
         .route("/{id}", delete(delete_user))

@@ -8,7 +8,8 @@ use chrono::Utc;
 use sea_orm::{
     sea_query::{Alias, Expr, OnConflict},
     ActiveValue::Set,
-    ColumnTrait as _, DatabaseConnection, DbErr, EntityTrait as _, QueryFilter as _,
+    ColumnTrait as _, DatabaseConnection, DbErr, EntityTrait as _, PaginatorTrait as _,
+    QueryFilter as _, QueryOrder as _, QuerySelect as _,
 };
 
 pub struct InteractionRepo;
@@ -158,5 +159,26 @@ impl InteractionRepository for InteractionRepo {
         }
 
         Ok(status_map)
+    }
+
+    async fn find_viewed_record_ids_paginated(
+        &self,
+        db: &DatabaseConnection,
+        user_id: &str,
+        limit: u64,
+        offset: u64,
+    ) -> Result<(Vec<String>, u64), DbErr> {
+        let query = user_record_interaction::Entity::find()
+            .filter(user_record_interaction::Column::UserId.eq(user_id))
+            .filter(user_record_interaction::Column::Viewed.eq(true))
+            .order_by_desc(user_record_interaction::Column::ViewedAt);
+
+        let total = query.clone().count(db).await?;
+
+        let interactions: Vec<user_record_interaction::Model> =
+            query.offset(offset).limit(limit).all(db).await?;
+
+        let ids = interactions.into_iter().map(|i| i.record_id).collect();
+        Ok((ids, total))
     }
 }

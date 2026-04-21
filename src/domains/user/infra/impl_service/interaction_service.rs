@@ -1,12 +1,15 @@
 use crate::{
     common::error::AppError,
-    domains::user::{
-        domain::{
-            model::user_interaction::InteractionStatus,
-            repository::interaction_repo::InteractionRepository,
-            service::interaction_service::InteractionServiceTrait,
+    domains::{
+        luna::dto::{PaginatedResponse, PaginationQuery},
+        user::{
+            domain::{
+                model::user_interaction::InteractionStatus,
+                repository::interaction_repo::InteractionRepository,
+                service::interaction_service::InteractionServiceTrait,
+            },
+            infra::impl_repository::interaction_repo::InteractionRepo,
         },
-        infra::impl_repository::interaction_repo::InteractionRepo,
     },
 };
 use async_trait::async_trait;
@@ -52,5 +55,46 @@ impl InteractionServiceTrait for InteractionService {
             .batch_get_status(&self.db, user_id, record_ids)
             .await
             .map_err(AppError::DatabaseError)
+    }
+
+    async fn get_viewed_record_ids_paginated(
+        &self,
+        user_id: &str,
+        pagination: PaginationQuery,
+    ) -> Result<PaginatedResponse<String>, AppError> {
+        let page_size = pagination
+            .limit
+            .filter(|&l| l > 0)
+            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
+            as u64;
+        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+
+        let (ids, total) = self
+            .repo
+            .find_viewed_record_ids_paginated(&self.db, user_id, page_size, current_offset)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        let next_offset = current_offset + page_size;
+        let next = if next_offset < total {
+            Some(format!("?limit={page_size}&offset={next_offset}"))
+        } else {
+            None
+        };
+        let previous = if current_offset > 0 {
+            Some(format!(
+                "?limit={page_size}&offset={}",
+                current_offset.saturating_sub(page_size)
+            ))
+        } else {
+            None
+        };
+
+        Ok(PaginatedResponse {
+            count: total as i64,
+            next,
+            previous,
+            results: ids,
+        })
     }
 }
