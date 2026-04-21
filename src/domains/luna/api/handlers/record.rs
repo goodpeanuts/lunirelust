@@ -2,13 +2,72 @@ use crate::{
     common::{app_state::AppState, dto::RestApiResponse, error::AppError, jwt::Claims},
     domains::luna::dto::{
         CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
-        RecordSlimDto, SearchRecordDto, UpdateRecordDto,
+        RecordSlimDto, SearchRecordDto, UpdateRecordDto, UserFilter,
     },
 };
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 
 use validator::Validate as _;
+
+/// Build a `UserFilter` from query params and claims.
+fn build_user_filter(pagination: &PaginationQuery, claims: &Claims) -> Option<UserFilter> {
+    pagination
+        .liked_only
+        .unwrap_or(false)
+        .then_some(UserFilter {
+            user_id: claims.sub.clone(),
+            liked_only: true,
+        })
+}
+
+/// Attach interaction status to a list of `RecordDto`.
+async fn attach_interaction_status(
+    state: &AppState,
+    user_id: &str,
+    dtos: &mut [RecordDto],
+) -> Result<(), AppError> {
+    let record_ids: Vec<String> = dtos.iter().map(|d| d.id.clone()).collect();
+    if record_ids.is_empty() {
+        return Ok(());
+    }
+    let status_map = state
+        .user_service
+        .interaction_service()
+        .batch_get_status(user_id, &record_ids)
+        .await?;
+    for dto in dtos.iter_mut() {
+        if let Some(status) = status_map.get(&dto.id) {
+            dto.liked = status.liked;
+            dto.viewed = status.viewed;
+        }
+    }
+    Ok(())
+}
+
+/// Attach interaction status to a list of `RecordSlimDto`.
+async fn attach_interaction_status_slim(
+    state: &AppState,
+    user_id: &str,
+    dtos: &mut [RecordSlimDto],
+) -> Result<(), AppError> {
+    let record_ids: Vec<String> = dtos.iter().map(|d| d.id.clone()).collect();
+    if record_ids.is_empty() {
+        return Ok(());
+    }
+    let status_map = state
+        .user_service
+        .interaction_service()
+        .batch_get_status(user_id, &record_ids)
+        .await?;
+    for dto in dtos.iter_mut() {
+        if let Some(status) = status_map.get(&dto.id) {
+            dto.liked = status.liked;
+            dto.viewed = status.viewed;
+        }
+    }
+    Ok(())
+}
 
 // Record handlers
 #[utoipa::path(
@@ -19,6 +78,7 @@ use validator::Validate as _;
 )]
 pub async fn get_record_by_id(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     let record = state
@@ -26,19 +86,28 @@ pub async fn get_record_by_id(
         .record_service()
         .get_record_by_id(&id)
         .await?;
-    Ok(RestApiResponse::success(record))
+    let mut records = vec![record];
+    attach_interaction_status(&state, &claims.sub, &mut records).await?;
+    Ok(RestApiResponse::success(
+        records.into_iter().next().expect("vec has one element"),
+    ))
 }
 
 #[utoipa::path(
     get,
     path = "/cards/records",
+    params(
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+    ),
     responses((status = 200, description = "List all records")),
     tag = "Records"
 )]
 pub async fn get_records(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    let user_filter = build_user_filter(&pagination, &claims);
     let search_dto = SearchRecordDto {
         id: None,
         title: None,
@@ -49,11 +118,12 @@ pub async fn get_records(
         search: None,
     };
 
-    let paginated_result = state
+    let mut paginated_result = state
         .luna_service
         .record_service()
-        .get_record_list_paginated(search_dto, pagination)
+        .get_record_list_paginated(search_dto, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut paginated_result.results).await?;
     Ok(RestApiResponse::success(paginated_result))
 }
 
@@ -120,7 +190,7 @@ pub async fn update_record(
 )]
 pub async fn patch_record(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(body): Json<UpdateRecordDto>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -129,7 +199,11 @@ pub async fn patch_record(
         .record_service()
         .update_record(&id, body)
         .await?;
-    Ok(RestApiResponse::success(record))
+    let mut records = vec![record];
+    attach_interaction_status(&state, &claims.sub, &mut records).await?;
+    Ok(RestApiResponse::success(
+        records.into_iter().next().expect("vec has one element"),
+    ))
 }
 
 #[utoipa::path(
@@ -179,26 +253,37 @@ pub async fn delete_record(
     params(
         ("id" = i64, Path, description = "Director ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
     ),
     responses((status = 200, description = "Get records by director", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
 )]
 pub async fn get_records_by_director(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
     let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+    let liked_only = params
+        .get("liked_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let pagination = PaginationQuery { limit, offset };
+    let pagination = PaginationQuery {
+        limit,
+        offset,
+        liked_only,
+    };
+    let user_filter = build_user_filter(&pagination, &claims);
 
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
-        .get_records_by_director(id, pagination)
+        .get_records_by_director(id, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut records.results).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -208,26 +293,37 @@ pub async fn get_records_by_director(
     params(
         ("id" = i64, Path, description = "Studio ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
     ),
     responses((status = 200, description = "Get records by studio", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
 )]
 pub async fn get_records_by_studio(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
     let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+    let liked_only = params
+        .get("liked_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let pagination = PaginationQuery { limit, offset };
+    let pagination = PaginationQuery {
+        limit,
+        offset,
+        liked_only,
+    };
+    let user_filter = build_user_filter(&pagination, &claims);
 
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
-        .get_records_by_studio(id, pagination)
+        .get_records_by_studio(id, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut records.results).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -237,26 +333,37 @@ pub async fn get_records_by_studio(
     params(
         ("id" = i64, Path, description = "Label ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
     ),
     responses((status = 200, description = "Get records by label", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
 )]
 pub async fn get_records_by_label(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
     let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+    let liked_only = params
+        .get("liked_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let pagination = PaginationQuery { limit, offset };
+    let pagination = PaginationQuery {
+        limit,
+        offset,
+        liked_only,
+    };
+    let user_filter = build_user_filter(&pagination, &claims);
 
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
-        .get_records_by_label(id, pagination)
+        .get_records_by_label(id, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut records.results).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -266,26 +373,37 @@ pub async fn get_records_by_label(
     params(
         ("id" = i64, Path, description = "Series ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
     ),
     responses((status = 200, description = "Get records by series", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
 )]
 pub async fn get_records_by_series(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
     let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+    let liked_only = params
+        .get("liked_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let pagination = PaginationQuery { limit, offset };
+    let pagination = PaginationQuery {
+        limit,
+        offset,
+        liked_only,
+    };
+    let user_filter = build_user_filter(&pagination, &claims);
 
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
-        .get_records_by_series(id, pagination)
+        .get_records_by_series(id, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut records.results).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -295,26 +413,37 @@ pub async fn get_records_by_series(
     params(
         ("id" = i64, Path, description = "Genre ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
     ),
     responses((status = 200, description = "Get records by genre", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
 )]
 pub async fn get_records_by_genre(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
     let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+    let liked_only = params
+        .get("liked_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let pagination = PaginationQuery { limit, offset };
+    let pagination = PaginationQuery {
+        limit,
+        offset,
+        liked_only,
+    };
+    let user_filter = build_user_filter(&pagination, &claims);
 
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
-        .get_records_by_genre(id, pagination)
+        .get_records_by_genre(id, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut records.results).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -324,26 +453,37 @@ pub async fn get_records_by_genre(
     params(
         ("id" = i64, Path, description = "Idol ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
-        ("offset" = Option<i64>, Query, description = "Offset for pagination")
+        ("offset" = Option<i64>, Query, description = "Offset for pagination"),
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
     ),
     responses((status = 200, description = "Get records by idol", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
 )]
 pub async fn get_records_by_idol(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = params.get("limit").and_then(|s| s.parse::<i64>().ok());
     let offset = params.get("offset").and_then(|s| s.parse::<i64>().ok());
+    let liked_only = params
+        .get("liked_only")
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let pagination = PaginationQuery { limit, offset };
+    let pagination = PaginationQuery {
+        limit,
+        offset,
+        liked_only,
+    };
+    let user_filter = build_user_filter(&pagination, &claims);
 
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
-        .get_records_by_idol(id, pagination)
+        .get_records_by_idol(id, pagination, user_filter)
         .await?;
+    attach_interaction_status(&state, &claims.sub, &mut records.results).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -355,12 +495,14 @@ pub async fn get_records_by_idol(
 )]
 pub async fn get_all_record_slim(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
-    let records = state
+    let mut records = state
         .luna_service
         .record_service()
         .get_all_record_slim()
         .await?;
+    attach_interaction_status_slim(&state, &claims.sub, &mut records).await?;
     Ok(RestApiResponse::success(records))
 }
 
@@ -376,6 +518,7 @@ pub async fn get_all_record_slim(
 )]
 pub async fn get_all_record_ids(
     State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let all_ids = state

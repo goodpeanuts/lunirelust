@@ -2,7 +2,7 @@ use crate::domains::luna::{
     domain::Record,
     dto::{
         CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, SearchRecordDto,
-        UpdateRecordDto,
+        UpdateRecordDto, UserFilter,
     },
 };
 use async_trait::async_trait;
@@ -45,6 +45,7 @@ pub trait RecordRepository: Send + Sync {
         db: &DatabaseConnection,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr>;
 
     /// Creates a new record within an active transaction.
@@ -95,6 +96,7 @@ pub trait RecordRepository: Send + Sync {
         db: &DatabaseConnection,
         genre_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr>;
 
     /// Finds records filtered by idol via JOIN on `idol_participation` table.
@@ -111,5 +113,6 @@ pub trait RecordRepository: Send + Sync {
         db: &DatabaseConnection,
         idol_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr>;
 }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::domains::user::domain::model::User;
+use crate::domains::user::domain::model::user::User;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserDto {

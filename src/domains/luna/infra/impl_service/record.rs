@@ -4,7 +4,7 @@ use crate::{
         domain::{RecordRepository, RecordServiceTrait},
         dto::{
             CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
-            RecordSlimDto, SearchRecordDto, UpdateRecordDto,
+            RecordSlimDto, SearchRecordDto, UpdateRecordDto, UserFilter,
         },
         infra::RecordRepo,
     },
@@ -63,10 +63,11 @@ impl RecordServiceTrait for RecordService {
         &self,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         let paginated = self
             .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
+            .find_list_paginated(&self.db, search_dto, pagination, user_filter)
             .await
             .map_err(AppError::DatabaseError)?;
 
@@ -326,6 +327,7 @@ impl RecordServiceTrait for RecordService {
         &self,
         director_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         self.query_by_search_dto(
             SearchRecordDto {
@@ -333,6 +335,7 @@ impl RecordServiceTrait for RecordService {
                 ..Default::default()
             },
             pagination,
+            user_filter,
         )
         .await
     }
@@ -341,6 +344,7 @@ impl RecordServiceTrait for RecordService {
         &self,
         studio_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         self.query_by_search_dto(
             SearchRecordDto {
@@ -348,6 +352,7 @@ impl RecordServiceTrait for RecordService {
                 ..Default::default()
             },
             pagination,
+            user_filter,
         )
         .await
     }
@@ -356,6 +361,7 @@ impl RecordServiceTrait for RecordService {
         &self,
         label_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         self.query_by_search_dto(
             SearchRecordDto {
@@ -363,6 +369,7 @@ impl RecordServiceTrait for RecordService {
                 ..Default::default()
             },
             pagination,
+            user_filter,
         )
         .await
     }
@@ -371,6 +378,7 @@ impl RecordServiceTrait for RecordService {
         &self,
         series_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         self.query_by_search_dto(
             SearchRecordDto {
@@ -378,6 +386,7 @@ impl RecordServiceTrait for RecordService {
                 ..Default::default()
             },
             pagination,
+            user_filter,
         )
         .await
     }
@@ -386,10 +395,11 @@ impl RecordServiceTrait for RecordService {
         &self,
         genre_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         let paginated = self
             .repo
-            .find_by_genre_id_paginated(&self.db, genre_id, pagination)
+            .find_by_genre_id_paginated(&self.db, genre_id, pagination, user_filter)
             .await
             .map_err(AppError::DatabaseError)?;
         Ok(Self::to_paginated_response(paginated))
@@ -399,10 +409,11 @@ impl RecordServiceTrait for RecordService {
         &self,
         idol_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         let paginated = self
             .repo
-            .find_by_idol_id_paginated(&self.db, idol_id, pagination)
+            .find_by_idol_id_paginated(&self.db, idol_id, pagination, user_filter)
             .await
             .map_err(AppError::DatabaseError)?;
         Ok(Self::to_paginated_response(paginated))
@@ -415,10 +426,11 @@ impl RecordService {
         &self,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError> {
         let paginated = self
             .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
+            .find_list_paginated(&self.db, search_dto, pagination, user_filter)
             .await
             .map_err(AppError::DatabaseError)?;
         Ok(Self::to_paginated_response(paginated))

@@ -2,7 +2,7 @@ use crate::{
     common::error::AppError,
     domains::luna::dto::{
         CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
-        RecordSlimDto, SearchRecordDto, UpdateRecordDto,
+        RecordSlimDto, SearchRecordDto, UpdateRecordDto, UserFilter,
     },
 };
 
@@ -38,6 +38,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Retrieves all records.
@@ -61,6 +62,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         director_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by studio ID with pagination
@@ -68,6 +70,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         studio_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by label ID with pagination
@@ -75,6 +78,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         label_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by series ID with pagination
@@ -82,6 +86,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         series_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by genre ID with pagination
@@ -89,6 +94,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         genre_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by idol ID with pagination
@@ -96,6 +102,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         idol_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Update record links only - add new links that don't already exist

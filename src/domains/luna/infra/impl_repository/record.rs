@@ -7,11 +7,14 @@ use crate::domains::luna::{
     },
     dto::{
         CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, SearchRecordDto,
-        UpdateRecordDto,
+        UpdateRecordDto, UserFilter,
     },
     infra::{DirectorRepo, GenreRepo, IdolRepo, LabelRepo, SeriesRepo, StudioRepo},
 };
-use crate::entities::{idol_participation, links, record, record_genre, LinksEntity, RecordEntity};
+use crate::entities::{
+    idol_participation, links, record, record_genre, user_record_interaction, LinksEntity,
+    RecordEntity,
+};
 use async_trait::async_trait;
 use sea_orm::prelude::Decimal;
 use sea_orm::sea_query::JoinType;
@@ -20,6 +23,14 @@ use sea_orm::{
     EntityTrait as _, PaginatorTrait as _, QueryFilter as _, QuerySelect as _, RelationTrait as _,
     Set,
 };
+
+/// Build a pagination link string, optionally appending `&liked_only=true`.
+fn build_page_link(limit: u64, offset: u64, liked_param: Option<&str>) -> String {
+    match liked_param {
+        Some(val) => format!("?limit={limit}&offset={offset}&liked_only={val}"),
+        None => format!("?limit={limit}&offset={offset}"),
+    }
+}
 
 // Record Repository Implementation
 pub struct RecordRepo;
@@ -80,6 +91,7 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr> {
         let mut query = RecordEntity::find();
 
@@ -102,6 +114,22 @@ impl RecordRepository for RecordRepo {
             query = query.filter(record::Column::SeriesId.eq(series_id));
         }
 
+        let liked_param = user_filter
+            .as_ref()
+            .and_then(|f| f.liked_only.then_some("true"));
+
+        if let Some(ref filter) = user_filter {
+            if filter.liked_only {
+                query = query
+                    .join_rev(
+                        JoinType::InnerJoin,
+                        user_record_interaction::Relation::Record.def(),
+                    )
+                    .filter(user_record_interaction::Column::UserId.eq(&filter.user_id))
+                    .filter(user_record_interaction::Column::Liked.eq(true));
+            }
+        }
+
         let page_size = pagination
             .limit
             .filter(|&l| l > 0)
@@ -119,14 +147,15 @@ impl RecordRepository for RecordRepo {
 
         let next_offset = current_offset + page_size;
         let next = if next_offset < total_items {
-            Some(format!("?limit={page_size}&offset={next_offset}"))
+            Some(build_page_link(page_size, next_offset, liked_param))
         } else {
             None
         };
         let previous = if current_offset > 0 {
-            Some(format!(
-                "?limit={page_size}&offset={}",
-                current_offset.saturating_sub(page_size)
+            Some(build_page_link(
+                page_size,
+                current_offset.saturating_sub(page_size),
+                liked_param,
             ))
         } else {
             None
@@ -406,10 +435,27 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         genre_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr> {
-        let query = RecordEntity::find()
+        let mut query = RecordEntity::find()
             .join_rev(JoinType::InnerJoin, record_genre::Relation::Record.def())
             .filter(record_genre::Column::GenreId.eq(genre_id));
+
+        let liked_param = user_filter
+            .as_ref()
+            .and_then(|f| f.liked_only.then_some("true"));
+
+        if let Some(ref filter) = user_filter {
+            if filter.liked_only {
+                query = query
+                    .join_rev(
+                        JoinType::InnerJoin,
+                        user_record_interaction::Relation::Record.def(),
+                    )
+                    .filter(user_record_interaction::Column::UserId.eq(&filter.user_id))
+                    .filter(user_record_interaction::Column::Liked.eq(true));
+            }
+        }
 
         let page_size = pagination
             .limit
@@ -428,14 +474,15 @@ impl RecordRepository for RecordRepo {
 
         let next_offset = current_offset + page_size;
         let next = if next_offset < total_items {
-            Some(format!("?limit={page_size}&offset={next_offset}"))
+            Some(build_page_link(page_size, next_offset, liked_param))
         } else {
             None
         };
         let previous = if current_offset > 0 {
-            Some(format!(
-                "?limit={page_size}&offset={}",
-                current_offset.saturating_sub(page_size)
+            Some(build_page_link(
+                page_size,
+                current_offset.saturating_sub(page_size),
+                liked_param,
             ))
         } else {
             None
@@ -470,13 +517,30 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         idol_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr> {
-        let query = RecordEntity::find()
+        let mut query = RecordEntity::find()
             .join_rev(
                 JoinType::InnerJoin,
                 idol_participation::Relation::Record.def(),
             )
             .filter(idol_participation::Column::IdolId.eq(idol_id));
+
+        let liked_param = user_filter
+            .as_ref()
+            .and_then(|f| f.liked_only.then_some("true"));
+
+        if let Some(ref filter) = user_filter {
+            if filter.liked_only {
+                query = query
+                    .join_rev(
+                        JoinType::InnerJoin,
+                        user_record_interaction::Relation::Record.def(),
+                    )
+                    .filter(user_record_interaction::Column::UserId.eq(&filter.user_id))
+                    .filter(user_record_interaction::Column::Liked.eq(true));
+            }
+        }
 
         let page_size = pagination
             .limit
@@ -495,14 +559,15 @@ impl RecordRepository for RecordRepo {
 
         let next_offset = current_offset + page_size;
         let next = if next_offset < total_items {
-            Some(format!("?limit={page_size}&offset={next_offset}"))
+            Some(build_page_link(page_size, next_offset, liked_param))
         } else {
             None
         };
         let previous = if current_offset > 0 {
-            Some(format!(
-                "?limit={page_size}&offset={}",
-                current_offset.saturating_sub(page_size)
+            Some(build_page_link(
+                page_size,
+                current_offset.saturating_sub(page_size),
+                liked_param,
             ))
         } else {
             None
