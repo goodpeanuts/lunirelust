@@ -69,7 +69,11 @@ impl InteractionRepository for InteractionRepo {
             .filter(user_record_interaction::Column::RecordId.eq(record_id))
             .one(db)
             .await?
-            .expect("row must exist after upsert");
+            .ok_or_else(|| {
+                DbErr::Custom(format!(
+                    "missing user_record_interaction row after upsert for user_id={user_id} record_id={record_id}"
+                ))
+            })?;
 
         Ok(row.liked)
     }

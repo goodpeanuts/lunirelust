@@ -19,7 +19,7 @@ pub struct Model {
     pub viewed: bool,
     pub liked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub viewed_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 #[utoipa::path(
     post,
-    path = "/cards/records/user/{id}/like",
+    path = "/cards/records/user/{record_id}/like",
     responses(
         (status = 200, description = "Like toggled", body = ToggleLikeResponse)
     ),
@@ -37,7 +37,7 @@ pub async fn toggle_like(
 
 #[utoipa::path(
     post,
-    path = "/cards/records/user/{id}/viewed",
+    path = "/cards/records/user/{record_id}/viewed",
     responses(
         (status = 200, description = "Record marked as viewed", body = MarkViewedResponse)
     ),

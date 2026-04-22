@@ -362,8 +362,8 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/slim", get(get_record_slim_paginated))
         .route("/records/slim/all", get(get_all_record_slim_all))
         // User interaction routes (moved from /user domain)
-        .route("/records/user/{id}/like", post(toggle_like))
-        .route("/records/user/{id}/viewed", post(mark_viewed))
+        .route("/records/user/{record_id}/like", post(toggle_like))
+        .route("/records/user/{record_id}/viewed", post(mark_viewed))
         .route("/records/user/status", post(batch_status))
         .route("/records/user/viewed", get(get_viewed_record_ids))
         // Records by entity endpoints

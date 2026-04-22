@@ -97,7 +97,8 @@ pub async fn get_record_by_id(
     get,
     path = "/cards/records",
     params(
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "List all records")),
     tag = "Records"
@@ -254,7 +255,8 @@ pub async fn delete_record(
         ("id" = i64, Path, description = "Director ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
         ("offset" = Option<i64>, Query, description = "Offset for pagination"),
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "Get records by director", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
@@ -298,7 +300,8 @@ pub async fn get_records_by_director(
         ("id" = i64, Path, description = "Studio ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
         ("offset" = Option<i64>, Query, description = "Offset for pagination"),
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "Get records by studio", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
@@ -342,7 +345,8 @@ pub async fn get_records_by_studio(
         ("id" = i64, Path, description = "Label ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
         ("offset" = Option<i64>, Query, description = "Offset for pagination"),
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "Get records by label", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
@@ -386,7 +390,8 @@ pub async fn get_records_by_label(
         ("id" = i64, Path, description = "Series ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
         ("offset" = Option<i64>, Query, description = "Offset for pagination"),
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "Get records by series", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
@@ -430,7 +435,8 @@ pub async fn get_records_by_series(
         ("id" = i64, Path, description = "Genre ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
         ("offset" = Option<i64>, Query, description = "Offset for pagination"),
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "Get records by genre", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
@@ -474,7 +480,8 @@ pub async fn get_records_by_genre(
         ("id" = i64, Path, description = "Idol ID"),
         ("limit" = Option<i64>, Query, description = "Limit for pagination"),
         ("offset" = Option<i64>, Query, description = "Offset for pagination"),
-        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only")
+        ("liked_only" = Option<bool>, Query, description = "Filter to liked records only"),
+        ("viewed_only" = Option<bool>, Query, description = "Filter to viewed records only")
     ),
     responses((status = 200, description = "Get records by idol", body = PaginatedResponse<RecordDto>)),
     tag = "Records"
