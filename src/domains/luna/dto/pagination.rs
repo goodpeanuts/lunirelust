@@ -19,6 +19,14 @@ pub struct PaginationQuery {
     /// Defaults to 0.
     #[serde(default)]
     pub offset: Option<i64>,
+
+    /// When true, only return records the authenticated user has liked.
+    #[serde(default)]
+    pub liked_only: Option<bool>,
+
+    /// When true, only return records the authenticated user has viewed.
+    #[serde(default)]
+    pub viewed_only: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -35,4 +43,13 @@ pub struct SearchQuery {
     pub search: Option<String>,
     #[serde(flatten)]
     pub pagination: PaginationQuery,
+}
+
+/// User context for filtering records by interaction status.
+/// Passed through service/repo layers when a user wants liked/viewed-only results.
+#[derive(Debug, Clone)]
+pub struct UserFilter {
+    pub user_id: String,
+    pub liked_only: bool,
+    pub viewed_only: bool,
 }

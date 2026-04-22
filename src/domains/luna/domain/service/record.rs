@@ -2,7 +2,7 @@ use crate::{
     common::error::AppError,
     domains::luna::dto::{
         CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, RecordDto,
-        RecordSlimDto, SearchRecordDto, UpdateRecordDto,
+        RecordSlimDto, SearchRecordDto, UpdateRecordDto, UserFilter,
     },
 };
 
@@ -21,11 +21,31 @@ pub trait RecordServiceTrait: Send + Sync {
     /// Retrieves a record by their unique identifier.
     async fn get_record_by_id(&self, id: &str) -> Result<RecordDto, AppError>;
 
-    /// Retrieves all record IDs.
-    async fn get_all_record_ids(&self) -> Result<Vec<String>, AppError>;
+    /// Retrieves all record IDs, optionally filtered by user interaction.
+    async fn get_all_record_ids(
+        &self,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<String>, AppError>;
 
-    /// Retrieves all records in a slim format.
-    async fn get_all_record_slim(&self) -> Result<Vec<RecordSlimDto>, AppError>;
+    /// Retrieves all records in a slim format, optionally filtered by user interaction.
+    async fn get_all_record_slim(
+        &self,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<RecordSlimDto>, AppError>;
+
+    /// Retrieves record IDs with database-level pagination and optional user filtering.
+    async fn get_record_ids_paginated(
+        &self,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<String>, AppError>;
+
+    /// Retrieves slim records with database-level pagination and optional user filtering.
+    async fn get_record_slim_paginated(
+        &self,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<RecordSlimDto>, AppError>;
 
     /// Retrieves record list by condition
     async fn get_record_list(
@@ -38,6 +58,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Retrieves all records.
@@ -61,6 +82,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         director_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by studio ID with pagination
@@ -68,6 +90,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         studio_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by label ID with pagination
@@ -75,6 +98,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         label_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by series ID with pagination
@@ -82,6 +106,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         series_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by genre ID with pagination
@@ -89,6 +114,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         genre_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Get records by idol ID with pagination
@@ -96,6 +122,7 @@ pub trait RecordServiceTrait: Send + Sync {
         &self,
         idol_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
 
     /// Update record links only - add new links that don't already exist

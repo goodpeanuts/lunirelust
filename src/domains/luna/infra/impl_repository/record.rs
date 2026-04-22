@@ -7,19 +7,126 @@ use crate::domains::luna::{
     },
     dto::{
         CreateLinkDto, CreateRecordDto, PaginatedResponse, PaginationQuery, SearchRecordDto,
-        UpdateRecordDto,
+        UpdateRecordDto, UserFilter,
     },
     infra::{DirectorRepo, GenreRepo, IdolRepo, LabelRepo, SeriesRepo, StudioRepo},
 };
-use crate::entities::{idol_participation, links, record, record_genre, LinksEntity, RecordEntity};
+use crate::entities::{
+    idol_participation, links, record, record_genre, user_record_interaction, LinksEntity,
+    RecordEntity,
+};
 use async_trait::async_trait;
 use sea_orm::prelude::Decimal;
 use sea_orm::sea_query::JoinType;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
-    EntityTrait as _, PaginatorTrait as _, QueryFilter as _, QuerySelect as _, RelationTrait as _,
-    Set,
+    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, QuerySelect as _,
+    RelationTrait as _, Set,
 };
+
+/// Apply user interaction filter as INNER JOIN on `user_record_interaction`.
+fn apply_user_filter(
+    query: sea_orm::Select<RecordEntity>,
+    user_filter: &Option<UserFilter>,
+) -> sea_orm::Select<RecordEntity> {
+    let Some(ref filter) = user_filter else {
+        return query;
+    };
+    if !filter.liked_only && !filter.viewed_only {
+        return query;
+    }
+
+    let mut q = query.join_rev(
+        JoinType::InnerJoin,
+        user_record_interaction::Relation::Record.def(),
+    );
+    q = q.filter(user_record_interaction::Column::UserId.eq(&filter.user_id));
+    if filter.liked_only {
+        q = q.filter(user_record_interaction::Column::Liked.eq(true));
+    }
+    if filter.viewed_only {
+        q = q.filter(user_record_interaction::Column::Viewed.eq(true));
+    }
+    q
+}
+
+/// Build a pagination link string, appending active filter params.
+fn build_page_link(
+    limit: u64,
+    offset: u64,
+    liked_param: Option<&str>,
+    viewed_param: Option<&str>,
+) -> String {
+    let mut parts = vec![format!("limit={limit}"), format!("offset={offset}")];
+    if let Some(val) = liked_param {
+        parts.push(format!("liked_only={val}"));
+    }
+    if let Some(val) = viewed_param {
+        parts.push(format!("viewed_only={val}"));
+    }
+    format!("?{}", parts.join("&"))
+}
+
+/// Extract (`page_size`, `current_offset`) from pagination query.
+fn resolve_pagination(pagination: &PaginationQuery) -> (u64, u64) {
+    let page_size = pagination
+        .limit
+        .filter(|&l| l > 0)
+        .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64) as u64;
+    let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+    (page_size, current_offset)
+}
+
+/// Build a `PaginatedResponse` from results, pagination params, and filter state.
+fn build_paginated_response<T>(
+    results: Vec<T>,
+    total_items: u64,
+    page_size: u64,
+    current_offset: u64,
+    liked_param: Option<&str>,
+    viewed_param: Option<&str>,
+) -> PaginatedResponse<T> {
+    let next_offset = current_offset + page_size;
+    let next = if next_offset < total_items {
+        Some(build_page_link(
+            page_size,
+            next_offset,
+            liked_param,
+            viewed_param,
+        ))
+    } else {
+        None
+    };
+    let previous = if current_offset > 0 {
+        Some(build_page_link(
+            page_size,
+            current_offset.saturating_sub(page_size),
+            liked_param,
+            viewed_param,
+        ))
+    } else {
+        None
+    };
+    PaginatedResponse {
+        count: total_items as i64,
+        next,
+        previous,
+        results,
+    }
+}
+
+/// Extract liked/viewed param strings from `user_filter` for page link building.
+fn filter_params(user_filter: &Option<UserFilter>) -> (Option<&str>, Option<&str>) {
+    user_filter
+        .as_ref()
+        .map(|f| {
+            (
+                f.liked_only.then_some("true"),
+                f.viewed_only.then_some("true"),
+            )
+        })
+        .unwrap_or((None, None))
+}
 
 // Record Repository Implementation
 pub struct RecordRepo;
@@ -80,6 +187,7 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         search_dto: SearchRecordDto,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr> {
         let mut query = RecordEntity::find();
 
@@ -102,12 +210,10 @@ impl RecordRepository for RecordRepo {
             query = query.filter(record::Column::SeriesId.eq(series_id));
         }
 
-        let page_size = pagination
-            .limit
-            .filter(|&l| l > 0)
-            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
-            as u64;
-        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+        query = apply_user_filter(query, &user_filter);
+
+        let (page_size, current_offset) = resolve_pagination(&pagination);
+        let (liked_param, viewed_param) = filter_params(&user_filter);
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
@@ -117,27 +223,14 @@ impl RecordRepository for RecordRepo {
             .await?;
         let records = load_records_batch(db, record_models).await?;
 
-        let next_offset = current_offset + page_size;
-        let next = if next_offset < total_items {
-            Some(format!("?limit={page_size}&offset={next_offset}"))
-        } else {
-            None
-        };
-        let previous = if current_offset > 0 {
-            Some(format!(
-                "?limit={page_size}&offset={}",
-                current_offset.saturating_sub(page_size)
-            ))
-        } else {
-            None
-        };
-
-        Ok(PaginatedResponse {
-            count: total_items as i64,
-            next,
-            previous,
-            results: records,
-        })
+        Ok(build_paginated_response(
+            records,
+            total_items,
+            page_size,
+            current_offset,
+            liked_param,
+            viewed_param,
+        ))
     }
 
     async fn create(
@@ -298,8 +391,8 @@ impl RecordRepository for RecordRepo {
             active_record.modified_by = Set(record.modified_by);
 
             let updated = active_record.update(txn).await?;
-            let record = load_record_with_relations(txn, updated).await?;
-            Ok(Some(record))
+            let rec = load_record_with_relations(txn, updated).await?;
+            Ok(Some(rec))
         } else {
             Ok(None)
         }
@@ -349,9 +442,9 @@ impl RecordRepository for RecordRepo {
 
         // Update has_links flag if new links were added
         if added_count > 0 {
-            let record = RecordEntity::find_by_id(&record_id).one(txn).await?;
-            if let Some(record) = record {
-                let mut active_record: record::ActiveModel = record.into();
+            let rec = RecordEntity::find_by_id(&record_id).one(txn).await?;
+            if let Some(rec) = rec {
+                let mut active_record: record::ActiveModel = rec.into();
                 active_record.has_links = Set(true);
                 active_record.update(txn).await?;
             }
@@ -365,20 +458,28 @@ impl RecordRepository for RecordRepo {
         Ok(result.rows_affected > 0)
     }
 
-    async fn find_all_slim(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
-        let record_models = RecordEntity::find().all(db).await?;
+    async fn find_all_slim(
+        &self,
+        db: &DatabaseConnection,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<Record>, DbErr> {
+        let query = apply_user_filter(RecordEntity::find(), &user_filter);
+        let record_models = query.all(db).await?;
         load_records_slim(db, record_models).await
     }
 
-    async fn find_all_ids(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        use sea_orm::FromQueryResult;
-
+    async fn find_all_ids(
+        &self,
+        db: &DatabaseConnection,
+        user_filter: Option<UserFilter>,
+    ) -> Result<Vec<String>, DbErr> {
         #[derive(FromQueryResult)]
         struct IdOnly {
             id: String,
         }
 
-        let records: Vec<IdOnly> = RecordEntity::find()
+        let query = apply_user_filter(RecordEntity::find(), &user_filter);
+        let records: Vec<IdOnly> = query
             .select_only()
             .column(record::Column::Id)
             .into_model::<IdOnly>()
@@ -386,6 +487,71 @@ impl RecordRepository for RecordRepo {
             .await?;
 
         Ok(records.into_iter().map(|r| r.id).collect())
+    }
+
+    async fn find_ids_paginated(
+        &self,
+        db: &DatabaseConnection,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<String>, DbErr> {
+        #[derive(FromQueryResult)]
+        struct IdOnly {
+            id: String,
+        }
+
+        let query = apply_user_filter(RecordEntity::find(), &user_filter);
+        let (page_size, current_offset) = resolve_pagination(&pagination);
+        let (liked_param, viewed_param) = filter_params(&user_filter);
+
+        let total_items = query.clone().count(db).await?;
+        let records: Vec<IdOnly> = query
+            .select_only()
+            .column(record::Column::Id)
+            .offset(current_offset)
+            .limit(page_size)
+            .into_model::<IdOnly>()
+            .all(db)
+            .await?;
+
+        let ids: Vec<String> = records.into_iter().map(|r| r.id).collect();
+
+        Ok(build_paginated_response(
+            ids,
+            total_items,
+            page_size,
+            current_offset,
+            liked_param,
+            viewed_param,
+        ))
+    }
+
+    async fn find_all_slim_paginated(
+        &self,
+        db: &DatabaseConnection,
+        pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
+    ) -> Result<PaginatedResponse<Record>, DbErr> {
+        let query = apply_user_filter(RecordEntity::find(), &user_filter);
+        let (page_size, current_offset) = resolve_pagination(&pagination);
+        let (liked_param, viewed_param) = filter_params(&user_filter);
+
+        let total_items = query.clone().count(db).await?;
+        let record_models = query
+            .offset(current_offset)
+            .limit(page_size)
+            .all(db)
+            .await?;
+        let records = load_records_slim(db, record_models).await?;
+
+        Ok(build_paginated_response(
+            records,
+            total_items,
+            page_size,
+            current_offset,
+            liked_param,
+            viewed_param,
+        ))
     }
 
     async fn find_by_genre_id(
@@ -406,17 +572,15 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         genre_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr> {
         let query = RecordEntity::find()
             .join_rev(JoinType::InnerJoin, record_genre::Relation::Record.def())
             .filter(record_genre::Column::GenreId.eq(genre_id));
+        let query = apply_user_filter(query, &user_filter);
 
-        let page_size = pagination
-            .limit
-            .filter(|&l| l > 0)
-            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
-            as u64;
-        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+        let (page_size, current_offset) = resolve_pagination(&pagination);
+        let (liked_param, viewed_param) = filter_params(&user_filter);
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
@@ -426,27 +590,14 @@ impl RecordRepository for RecordRepo {
             .await?;
         let records = load_records_batch(db, record_models).await?;
 
-        let next_offset = current_offset + page_size;
-        let next = if next_offset < total_items {
-            Some(format!("?limit={page_size}&offset={next_offset}"))
-        } else {
-            None
-        };
-        let previous = if current_offset > 0 {
-            Some(format!(
-                "?limit={page_size}&offset={}",
-                current_offset.saturating_sub(page_size)
-            ))
-        } else {
-            None
-        };
-
-        Ok(PaginatedResponse {
-            count: total_items as i64,
-            next,
-            previous,
-            results: records,
-        })
+        Ok(build_paginated_response(
+            records,
+            total_items,
+            page_size,
+            current_offset,
+            liked_param,
+            viewed_param,
+        ))
     }
 
     async fn find_by_idol_id(
@@ -470,6 +621,7 @@ impl RecordRepository for RecordRepo {
         db: &DatabaseConnection,
         idol_id: i64,
         pagination: PaginationQuery,
+        user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<Record>, DbErr> {
         let query = RecordEntity::find()
             .join_rev(
@@ -477,13 +629,10 @@ impl RecordRepository for RecordRepo {
                 idol_participation::Relation::Record.def(),
             )
             .filter(idol_participation::Column::IdolId.eq(idol_id));
+        let query = apply_user_filter(query, &user_filter);
 
-        let page_size = pagination
-            .limit
-            .filter(|&l| l > 0)
-            .unwrap_or(crate::common::config::DEFAULT_PAGE_SIZE as i64)
-            as u64;
-        let current_offset = pagination.offset.unwrap_or(0).max(0) as u64;
+        let (page_size, current_offset) = resolve_pagination(&pagination);
+        let (liked_param, viewed_param) = filter_params(&user_filter);
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
@@ -493,26 +642,13 @@ impl RecordRepository for RecordRepo {
             .await?;
         let records = load_records_batch(db, record_models).await?;
 
-        let next_offset = current_offset + page_size;
-        let next = if next_offset < total_items {
-            Some(format!("?limit={page_size}&offset={next_offset}"))
-        } else {
-            None
-        };
-        let previous = if current_offset > 0 {
-            Some(format!(
-                "?limit={page_size}&offset={}",
-                current_offset.saturating_sub(page_size)
-            ))
-        } else {
-            None
-        };
-
-        Ok(PaginatedResponse {
-            count: total_items as i64,
-            next,
-            previous,
-            results: records,
-        })
+        Ok(build_paginated_response(
+            records,
+            total_items,
+            page_size,
+            current_offset,
+            liked_param,
+            viewed_param,
+        ))
     }
 }

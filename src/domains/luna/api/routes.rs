@@ -1,4 +1,5 @@
 use super::handlers::{
+    __path_batch_status,
     // Director handlers
     __path_create_director,
     // Genre handlers
@@ -20,8 +21,9 @@ use super::handlers::{
     __path_delete_record,
     __path_delete_series,
     __path_delete_studio,
-    __path_get_all_record_ids,
-    __path_get_all_record_slim,
+    // New record ID/slim handlers
+    __path_get_all_record_ids_all,
+    __path_get_all_record_slim_all,
     __path_get_director_by_id,
     // Auto-generated paths for count handlers
     __path_get_director_records_count,
@@ -37,6 +39,8 @@ use super::handlers::{
     __path_get_label_records_count,
     __path_get_labels,
     __path_get_record_by_id,
+    __path_get_record_ids_paginated,
+    __path_get_record_slim_paginated,
     __path_get_records,
     // Auto-generated paths for records by entity handlers
     __path_get_records_by_director,
@@ -51,6 +55,8 @@ use super::handlers::{
     __path_get_studio_by_id,
     __path_get_studio_records_count,
     __path_get_studios,
+    __path_get_viewed_record_ids,
+    __path_mark_viewed,
     __path_patch_director,
     __path_patch_genre,
     __path_patch_idol,
@@ -61,6 +67,8 @@ use super::handlers::{
     __path_serve_idol_media_by_id,
     __path_serve_idol_media_by_name,
     __path_serve_media,
+    // Interaction handlers (moved from user domain)
+    __path_toggle_like,
     __path_update_director,
     __path_update_genre,
     __path_update_idol,
@@ -72,6 +80,7 @@ use super::handlers::{
     __path_upload_idol_images_by_id,
     __path_upload_idol_images_by_name,
     __path_upload_images,
+    batch_status,
     create_director,
     create_genre,
     create_idol,
@@ -86,9 +95,9 @@ use super::handlers::{
     delete_record,
     delete_series,
     delete_studio,
-    // Record handlers additional
-    get_all_record_ids,
-    get_all_record_slim,
+    // New record ID/slim handlers
+    get_all_record_ids_all,
+    get_all_record_slim_all,
     get_director_by_id,
     // Count handlers
     get_director_records_count,
@@ -104,6 +113,8 @@ use super::handlers::{
     get_label_records_count,
     get_labels,
     get_record_by_id,
+    get_record_ids_paginated,
+    get_record_slim_paginated,
     get_records,
     // Records by entity handlers
     get_records_by_director,
@@ -118,6 +129,8 @@ use super::handlers::{
     get_studio_by_id,
     get_studio_records_count,
     get_studios,
+    get_viewed_record_ids,
+    mark_viewed,
     patch_director,
     patch_genre,
     patch_idol,
@@ -130,6 +143,8 @@ use super::handlers::{
     // Media handlers
     serve_media,
     serve_media_with_number,
+    // Interaction handlers (moved from user domain)
+    toggle_like,
     update_director,
     update_genre,
     update_idol,
@@ -145,11 +160,17 @@ use super::handlers::{
 
 use crate::{
     common::app_state::AppState,
-    domains::luna::dto::{
-        CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
-        CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto, MediaAccessDto,
-        RecordDto, RecordSlimDto, SeriesDto, StudioDto, UpdateDirectorDto, UpdateGenreDto,
-        UpdateIdolDto, UpdateLabelDto, UpdateRecordDto, UpdateSeriesDto, UpdateStudioDto,
+    domains::{
+        luna::dto::{
+            CreateDirectorDto, CreateGenreDto, CreateIdolDto, CreateLabelDto, CreateRecordDto,
+            CreateSeriesDto, CreateStudioDto, DirectorDto, GenreDto, IdolDto, LabelDto,
+            MediaAccessDto, PaginatedResponse, RecordDto, RecordSlimDto, SeriesDto, StudioDto,
+            UpdateDirectorDto, UpdateGenreDto, UpdateIdolDto, UpdateLabelDto, UpdateRecordDto,
+            UpdateSeriesDto, UpdateStudioDto,
+        },
+        user::dto::interaction_dto::{
+            BatchStatusRequestDto, InteractionStatusDto, MarkViewedResponse, ToggleLikeResponse,
+        },
     },
 };
 
@@ -229,8 +250,15 @@ use crate::common::openapi::SecurityAddon;
         get_records_by_series,
         get_records_by_genre,
         get_records_by_idol,
-        get_all_record_ids,
-        get_all_record_slim,
+        get_all_record_ids_all,
+        get_record_ids_paginated,
+        get_all_record_slim_all,
+        get_record_slim_paginated,
+        // Interaction endpoints (moved from user domain)
+        toggle_like,
+        mark_viewed,
+        batch_status,
+        get_viewed_record_ids,
         get_idols_without_images,
         // media
         serve_media,
@@ -248,7 +276,14 @@ use crate::common::openapi::SecurityAddon;
         SeriesDto, CreateSeriesDto, UpdateSeriesDto,
         IdolDto, CreateIdolDto, UpdateIdolDto,
         RecordDto, RecordSlimDto, CreateRecordDto, UpdateRecordDto,
-        MediaAccessDto
+        MediaAccessDto,
+        PaginatedResponse<RecordDto>,
+        PaginatedResponse<RecordSlimDto>,
+        PaginatedResponse<String>,
+        ToggleLikeResponse,
+        MarkViewedResponse,
+        BatchStatusRequestDto,
+        InteractionStatusDto
     )),
     tags(
         (name = "Directors", description = "Director management endpoints"),
@@ -322,8 +357,15 @@ pub fn luna_routes() -> Router<AppState> {
         .route("/records/{id}", patch(patch_record))
         .route("/records/links/{id}", patch(update_record_links))
         .route("/records/{id}", delete(delete_record))
-        .route("/records/ids", get(get_all_record_ids))
-        .route("/records/slim", get(get_all_record_slim))
+        .route("/records/ids", get(get_record_ids_paginated))
+        .route("/records/ids/all", get(get_all_record_ids_all))
+        .route("/records/slim", get(get_record_slim_paginated))
+        .route("/records/slim/all", get(get_all_record_slim_all))
+        // User interaction routes (moved from /user domain)
+        .route("/records/user/{record_id}/like", post(toggle_like))
+        .route("/records/user/{record_id}/viewed", post(mark_viewed))
+        .route("/records/user/status", post(batch_status))
+        .route("/records/user/viewed", get(get_viewed_record_ids))
         // Records by entity endpoints
         .route("/director/{id}/records", get(get_records_by_director))
         .route("/studio/{id}/records", get(get_records_by_studio))

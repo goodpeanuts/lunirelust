@@ -29,9 +29,11 @@ use crate::common::openapi::SecurityAddon;
         delete_user,
         get_current_user,
     ),
-    components(schemas(UserDto, SearchUserDto, CreateUserMultipartDto, UpdateUserDto)),
+    components(schemas(
+        UserDto, SearchUserDto, CreateUserMultipartDto, UpdateUserDto,
+    )),
     tags(
-        (name = "Users", description = "User management endpoints")
+        (name = "Users", description = "User management endpoints"),
     ),
     security(
         ("bearer_auth" = [])

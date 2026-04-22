@@ -3,6 +3,7 @@ mod api {
         mod director;
         mod genre;
         mod idol;
+        mod interaction_handlers;
         mod label;
         mod media;
         mod record;
@@ -13,6 +14,7 @@ mod api {
         pub use director::*;
         pub use genre::*;
         pub use idol::*;
+        pub use interaction_handlers::*;
         pub use label::*;
         pub use media::*;
         pub use record::*;

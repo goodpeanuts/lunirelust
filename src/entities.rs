@@ -18,6 +18,7 @@ pub mod studio;
 pub mod uploaded_files;
 pub mod user_auth;
 pub mod user_ext;
+pub mod user_record_interaction;
 pub mod users;
 
 pub use devices::{DevicesEntity, DevicesModel};
@@ -36,4 +37,5 @@ pub use studio::{StudioEntity, StudioModel};
 pub use uploaded_files::{UploadedFilesEntity, UploadedFilesModel};
 pub use user_auth::{UserAuthEntity, UserAuthModel};
 pub use user_ext::{UserExtEntity, UserExtModel};
+pub use user_record_interaction::{UserRecordInteractionEntity, UserRecordInteractionModel};
 pub use users::{UsersEntity, UsersModel};

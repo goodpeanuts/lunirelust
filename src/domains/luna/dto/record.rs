@@ -30,6 +30,10 @@ pub struct RecordSlimDto {
     pub idols: Vec<String>,
     pub has_links: bool,
     pub links: Vec<LinkDto>,
+    #[serde(default)]
+    pub liked: bool,
+    #[serde(default)]
+    pub viewed: bool,
 }
 
 // Record DTOs
@@ -53,6 +57,10 @@ pub struct RecordDto {
     pub update_time: Date,
     pub creator: String,
     pub modified_by: String,
+    #[serde(default)]
+    pub liked: bool,
+    #[serde(default)]
+    pub viewed: bool,
 }
 
 impl From<Record> for RecordDto {
@@ -84,6 +92,8 @@ impl From<Record> for RecordDto {
             update_time: record.update_time,
             creator: record.creator,
             modified_by: record.modified_by,
+            liked: false,
+            viewed: false,
         }
     }
 }
@@ -103,6 +113,8 @@ impl From<Record> for RecordSlimDto {
             idols: record.idols.into_iter().map(|ip| ip.idol.name).collect(),
             has_links: record.has_links,
             links: record.links.into_iter().map(LinkDto::from).collect(),
+            liked: false,
+            viewed: false,
         }
     }
 }
