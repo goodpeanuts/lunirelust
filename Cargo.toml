@@ -64,6 +64,10 @@ meilisearch-sdk = "0.32"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 once_cell = "1.21.3"
 md5 = "0.7.0"
+luneth = { git = "https://github.com/goodpeanuts/luneth.git", rev = "773f2bf0ca3c15f1ee43470b49b92934341a8e31", default-features = false, features = ["playwright"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
+async-stream = "0.3"
 
 [features]
 open-register = []

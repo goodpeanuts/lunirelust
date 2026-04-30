@@ -94,7 +94,7 @@ pub mod dto {
     pub use studio::*;
 }
 
-mod infra {
+pub(crate) mod infra {
     mod impl_repository {
         #[macro_use]
         mod entity_repo_macro;
@@ -117,5 +117,8 @@ mod infra {
 
 // Re-export commonly used items for convenience
 pub use api::routes::{luna_routes, LunaApiDoc};
-pub use domain::LunaServiceTrait;
+pub use domain::{
+    CreatedNestedEntities, FileServiceTrait, LunaServiceTrait, RecordRepository, RecordServiceTrait,
+};
 pub use infra::impl_service::LunaService;
+pub use infra::search_outbox::outbox_entity_upsert;

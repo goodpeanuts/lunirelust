@@ -40,6 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Start search indexer exactly once (not in test helpers).
     state.search_service.trigger_startup_sync();
 
+    // Reconcile stale crawl tasks from previous run.
+    state.crawl_service.reconcile_startup().await;
+
     let app = create_router(state);
 
     let addr = format!("{}:{}", config.service_host, config.service_port);

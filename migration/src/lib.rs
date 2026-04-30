@@ -15,6 +15,8 @@ mod m20250813_130000_create_admin_user;
 mod m20260408_000001_create_search_tables;
 mod m20260421_000001_create_user_record_interaction_table;
 mod m20260422_000001_add_viewed_index;
+mod m20260428_000001_create_crawl_tables;
+mod m20260428_000002_collapse_duplicate_links;
 
 pub struct Migrator;
 
@@ -37,6 +39,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260408_000001_create_search_tables::Migration),
             Box::new(m20260421_000001_create_user_record_interaction_table::Migration),
             Box::new(m20260422_000001_add_viewed_index::Migration),
+            Box::new(m20260428_000001_create_crawl_tables::Migration),
+            Box::new(m20260428_000002_collapse_duplicate_links::Migration),
         ]
     }
 }

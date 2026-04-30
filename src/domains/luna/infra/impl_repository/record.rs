@@ -23,6 +23,7 @@ use sea_orm::{
     EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, QuerySelect as _,
     RelationTrait as _, Set,
 };
+use std::collections::HashSet;
 
 /// Apply user interaction filter as INNER JOIN on `user_record_interaction`.
 fn apply_user_filter(
@@ -126,6 +127,36 @@ fn filter_params(user_filter: &Option<UserFilter>) -> (Option<&str>, Option<&str
             )
         })
         .unwrap_or((None, None))
+}
+
+// These helpers centralize the placeholder contract shared by manual link
+// writes and crawler-driven incremental backfill.
+fn default_link_date() -> chrono::NaiveDate {
+    chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("Failed to create default link date")
+}
+
+fn default_link_name() -> String {
+    "None".to_owned()
+}
+
+fn default_link_size() -> Decimal {
+    Decimal::new(-1, 0)
+}
+
+// Normalize optional link metadata before persistence so every write path uses
+// the same sentinels for "unknown" values.
+fn resolve_link_defaults(link: &CreateLinkDto) -> (String, Decimal, chrono::NaiveDate) {
+    let name = if link.name.trim().is_empty() {
+        default_link_name()
+    } else {
+        link.name.clone()
+    };
+
+    (
+        name,
+        link.size.unwrap_or_else(default_link_size),
+        link.date.unwrap_or_else(default_link_date),
+    )
 }
 
 // Record Repository Implementation
@@ -346,18 +377,21 @@ impl RecordRepository for RecordRepo {
             idol_participation.insert(txn).await?;
         }
 
-        // Handle links
+        // Handle links (skip empty/whitespace URLs, deduplicate by URL)
+        let mut seen_links: HashSet<String> = HashSet::new();
         for link_dto in record.links {
+            let trimmed = link_dto.link.trim().to_owned();
+            if trimmed.is_empty() || !seen_links.insert(trimmed) {
+                continue;
+            }
+            let (name, size, date) = resolve_link_defaults(&link_dto);
             let link_active_model = links::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 record_id: Set(record.id.clone()),
-                name: Set(link_dto.name),
-                size: Set(link_dto.size.unwrap_or(Decimal::new(-1, 0))),
-                date: Set(link_dto.date.unwrap_or_else(|| {
-                    chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
-                        .expect("Failed to create default date")
-                })),
-                link: Set(link_dto.link.unwrap_or_default()),
+                name: Set(name),
+                size: Set(size),
+                date: Set(date),
+                link: Set(link_dto.link),
                 star: Set(link_dto.star.unwrap_or(false)),
             };
             link_active_model.insert(txn).await?;
@@ -410,38 +444,65 @@ impl RecordRepository for RecordRepo {
             .all(txn)
             .await?;
 
-        let mut added_count = 0;
+        // Track all known URLs (DB existing + newly inserted in this batch)
+        let mut known_urls: HashSet<String> =
+            existing_links.iter().map(|l| l.link.clone()).collect();
 
-        // Check each new link to see if it already exists
+        let mut changed_count = 0;
+
         for new_link in new_links {
-            let link_exists = if let Some(ref link_url) = new_link.link {
-                existing_links
-                    .iter()
-                    .any(|existing| existing.link == *link_url)
-            } else {
-                false // Skip links without URL
-            };
+            if new_link.link.trim().is_empty() {
+                continue;
+            }
 
-            if !link_exists && new_link.link.is_some() {
-                // Insert new link
+            if let Some(existing) = existing_links.iter().find(|l| l.link == new_link.link) {
+                // Backfill placeholder fields on existing link
+                let default_name = default_link_name();
+                let default_size = default_link_size();
+                let default_date = default_link_date();
+
+                let name_changed = existing.name == default_name
+                    && !new_link.name.trim().is_empty()
+                    && new_link.name != default_name;
+                let size_changed = existing.size == default_size && new_link.size.is_some();
+                let date_changed = existing.date == default_date && new_link.date.is_some();
+
+                if name_changed || size_changed || date_changed {
+                    let mut active: links::ActiveModel = existing.clone().into();
+                    if name_changed {
+                        active.name = Set(new_link.name.clone());
+                    }
+                    if size_changed {
+                        active.size = Set(new_link
+                            .size
+                            .expect("size must be present when size_changed"));
+                    }
+                    if date_changed {
+                        active.date = Set(new_link
+                            .date
+                            .expect("date must be present when date_changed"));
+                    }
+                    active.update(txn).await?;
+                    changed_count += 1;
+                }
+            } else if known_urls.insert(new_link.link.clone()) {
+                let (name, size, date) = resolve_link_defaults(&new_link);
                 let link_active_model = links::ActiveModel {
                     record_id: Set(record_id.clone()),
-                    name: Set(new_link.name),
-                    size: Set(new_link.size.unwrap_or(Decimal::from(0))),
-                    date: Set(new_link
-                        .date
-                        .unwrap_or_else(|| chrono::Utc::now().date_naive())),
-                    link: Set(new_link.link.unwrap_or_default()),
+                    name: Set(name),
+                    size: Set(size),
+                    date: Set(date),
+                    link: Set(new_link.link),
                     star: Set(new_link.star.unwrap_or(false)),
                     ..Default::default()
                 };
                 link_active_model.insert(txn).await?;
-                added_count += 1;
+                changed_count += 1;
             }
         }
 
-        // Update has_links flag if new links were added
-        if added_count > 0 {
+        // Update has_links flag if any links were changed
+        if changed_count > 0 {
             let rec = RecordEntity::find_by_id(&record_id).one(txn).await?;
             if let Some(rec) = rec {
                 let mut active_record: record::ActiveModel = rec.into();
@@ -450,7 +511,7 @@ impl RecordRepository for RecordRepo {
             }
         }
 
-        Ok(added_count)
+        Ok(changed_count)
     }
 
     async fn delete(&self, txn: &DatabaseTransaction, id: String) -> Result<bool, DbErr> {
@@ -650,5 +711,55 @@ impl RecordRepository for RecordRepo {
             liked_param,
             viewed_param,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn resolve_link_defaults_uses_placeholder_sentinels_when_name_size_and_date_are_missing() {
+        // Empty/omitted metadata should collapse to the same canonical
+        // placeholders that update mode later recognizes as backfillable.
+        let dto = CreateLinkDto {
+            name: String::new(),
+            size: None,
+            date: None,
+            link: "https://example.com/magnet".to_owned(),
+            star: None,
+        };
+
+        let (name, size, date) = resolve_link_defaults(&dto);
+
+        assert_eq!(name, "None");
+        assert_eq!(size.to_string(), "-1");
+        assert_eq!(
+            date,
+            NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 is always valid")
+        );
+    }
+
+    #[test]
+    fn resolve_link_defaults_preserves_explicit_name_size_and_date() {
+        // Real metadata must survive normalization unchanged; only placeholder
+        // candidates should be rewritten.
+        let dto = CreateLinkDto {
+            name: "Magnet Link".to_owned(),
+            size: Some(Decimal::from_str_exact("1.5").expect("valid decimal")),
+            date: Some(NaiveDate::from_ymd_opt(2025, 8, 11).expect("2025-08-11 is always valid")),
+            link: "https://example.com/magnet".to_owned(),
+            star: Some(true),
+        };
+
+        let (name, size, date) = resolve_link_defaults(&dto);
+
+        assert_eq!(name, "Magnet Link");
+        assert_eq!(size.to_string(), "1.5");
+        assert_eq!(
+            date,
+            NaiveDate::from_ymd_opt(2025, 8, 11).expect("2025-08-11 is always valid")
+        );
     }
 }
