@@ -34,8 +34,8 @@ use utoipa::OpenApi as _;
 
 #[cfg(feature = "swagger")]
 use crate::domains::{
-    auth::UserAuthApiDoc, device::DeviceApiDoc, file::FileApiDoc, luna::LunaApiDoc,
-    search::SearchApiDoc, user::UserApiDoc,
+    auth::UserAuthApiDoc, crawl::CrawlApiDoc, device::DeviceApiDoc, file::FileApiDoc,
+    luna::LunaApiDoc, search::SearchApiDoc, user::UserApiDoc,
 };
 
 #[cfg(feature = "swagger")]
@@ -66,6 +66,7 @@ fn create_swagger_ui() -> SwaggerUi {
         .url("/api-docs/file/openapi.json", FileApiDoc::openapi())
         .url("/api-docs/luna/openapi.json", LunaApiDoc::openapi())
         .url("/api-docs/search/openapi.json", SearchApiDoc::openapi())
+        .url("/api-docs/crawl/openapi.json", CrawlApiDoc::openapi())
 }
 
 pub fn create_router(state: AppState) -> Router {

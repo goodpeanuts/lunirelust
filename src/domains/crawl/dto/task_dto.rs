@@ -35,6 +35,7 @@ pub struct StartAutoRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
+#[schema(example = json!({"liked_only": true}))]
 pub struct StartUpdateRequest {
     #[serde(default = "default_false")]
     pub liked_only: bool,

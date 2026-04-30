@@ -24,6 +24,18 @@ use crate::domains::crawl::dto::task_dto::{
 };
 use validator::Validate as _;
 
+#[utoipa::path(
+    post,
+    path = "/crawl/batch",
+    request_body = StartBatchRequest,
+    responses(
+        (status = 202, description = "Batch crawl task created", body = TaskResponse),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 pub async fn start_batch(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -46,6 +58,18 @@ pub async fn start_batch(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/crawl/auto",
+    request_body = StartAutoRequest,
+    responses(
+        (status = 202, description = "Auto crawl task created", body = TaskResponse),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 pub async fn start_auto(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -74,6 +98,18 @@ pub async fn start_auto(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/crawl/update",
+    request_body = StartUpdateRequest,
+    responses(
+        (status = 202, description = "Update crawl task created", body = TaskResponse),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 pub async fn start_update(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -96,6 +132,19 @@ pub async fn start_update(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/crawl/tasks/{id}/cancel",
+    params(("id" = i64, Path, description = "Task ID")),
+    responses(
+        (status = 200, description = "Task cancelled"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Task not found"),
+        (status = 409, description = "Cannot cancel a terminal task"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 pub async fn cancel_task(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -109,6 +158,23 @@ pub async fn cancel_task(
     Ok(RestApiResponse::success(()))
 }
 
+#[utoipa::path(
+    get,
+    path = "/crawl/tasks",
+    params(
+        ("status" = Option<String>, Query, description = "Filter by task status"),
+        ("task_type" = Option<String>, Query, description = "Filter by task type"),
+        ("page" = Option<u64>, Query, description = "Page number (default 1)"),
+        ("page_size" = Option<u64>, Query, description = "Page size (default 20)"),
+    ),
+    responses(
+        (status = 200, description = "List of crawl tasks", body = TaskListResponse),
+        (status = 400, description = "Validation error (e.g. page=0)"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 pub async fn list_tasks(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -157,6 +223,18 @@ pub async fn list_tasks(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/crawl/tasks/{id}",
+    params(("id" = i64, Path, description = "Task ID")),
+    responses(
+        (status = 200, description = "Task detail with results", body = TaskDetailResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Task not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 pub async fn get_task_detail(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -219,6 +297,18 @@ pub async fn get_task_detail(
 
 type BoxedSseStream = Pin<Box<dyn Stream<Item = Result<SseEventInner, Infallible>> + Send>>;
 
+#[utoipa::path(
+    get,
+    path = "/crawl/tasks/{id}/stream",
+    params(("id" = i64, Path, description = "Task ID")),
+    responses(
+        (status = 200, description = "SSE stream of crawl progress events"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Task not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
 #[expect(clippy::too_many_lines)]
 pub async fn stream_task(
     State(state): State<AppState>,
