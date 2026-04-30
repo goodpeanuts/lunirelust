@@ -9,6 +9,7 @@ target/
 <!-- Cargo.lock -->
 justfile
 Dockerfile
+Dockerfile.local
 docker-compose.yml
 docker-compose.build.yml
 tests/

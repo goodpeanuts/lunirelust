@@ -12,8 +12,14 @@ dev:
 dev-down:
     docker compose --env-file .env down
 
+# 下载依赖到 vendor/ 目录（用于 Docker 离线构建）
+vendor:
+    cargo vendor vendor/ > .cargo/config.vendor.toml
+    cat .cargo/config.toml .cargo/config.vendor.toml > .cargo/config.docker.toml
+
 # 本地构建全栈（在 dev 基础上加 app 容器）
 build:
+    just vendor
     docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 # 停止构建全栈
