@@ -1,8 +1,8 @@
 //! SQL fallback search using `PostgreSQL` LIKE queries when `MeiliSearch` is unavailable.
 
 use sea_orm::{
-    ColumnTrait as _, DatabaseConnection, EntityTrait as _, PaginatorTrait as _, QueryFilter as _,
-    QuerySelect as _,
+    ColumnTrait as _, DatabaseConnection, EntityTrait as _, Order, PaginatorTrait as _,
+    QueryFilter as _, QueryOrder as _, QuerySelect as _,
 };
 
 use crate::common::error::AppError;
@@ -266,6 +266,8 @@ pub(super) async fn search_sql_fallback(
 
         record_total = q.clone().count(db).await.map_err(AppError::DatabaseError)? as i64;
         let found = q
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .offset(offset as u64)
             .limit(limit as u64)
             .all(db)

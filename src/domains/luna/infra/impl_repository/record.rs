@@ -20,8 +20,8 @@ use sea_orm::prelude::Decimal;
 use sea_orm::sea_query::JoinType;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseConnection, DatabaseTransaction, DbErr,
-    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, QuerySelect as _,
-    RelationTrait as _, Set,
+    EntityTrait as _, FromQueryResult, Order, PaginatorTrait as _, QueryFilter as _,
+    QueryOrder as _, QuerySelect as _, RelationTrait as _, Set,
 };
 use std::collections::HashSet;
 
@@ -166,7 +166,11 @@ pub struct RecordRepo;
 #[async_trait]
 impl RecordRepository for RecordRepo {
     async fn find_all(&self, db: &DatabaseConnection) -> Result<Vec<Record>, DbErr> {
-        let record_models = RecordEntity::find().all(db).await?;
+        let record_models = RecordEntity::find()
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
+            .all(db)
+            .await?;
         load_records_batch(db, record_models).await
     }
 
@@ -209,7 +213,11 @@ impl RecordRepository for RecordRepo {
             query = query.filter(record::Column::SeriesId.eq(series_id));
         }
 
-        let record_models = query.all(db).await?;
+        let record_models = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
+            .all(db)
+            .await?;
         load_records_batch(db, record_models).await
     }
 
@@ -248,6 +256,8 @@ impl RecordRepository for RecordRepo {
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .offset(current_offset)
             .limit(page_size)
             .all(db)
@@ -525,7 +535,11 @@ impl RecordRepository for RecordRepo {
         user_filter: Option<UserFilter>,
     ) -> Result<Vec<Record>, DbErr> {
         let query = apply_user_filter(RecordEntity::find(), &user_filter);
-        let record_models = query.all(db).await?;
+        let record_models = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
+            .all(db)
+            .await?;
         load_records_slim(db, record_models).await
     }
 
@@ -541,6 +555,8 @@ impl RecordRepository for RecordRepo {
 
         let query = apply_user_filter(RecordEntity::find(), &user_filter);
         let records: Vec<IdOnly> = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .select_only()
             .column(record::Column::Id)
             .into_model::<IdOnly>()
@@ -569,6 +585,8 @@ impl RecordRepository for RecordRepo {
         let records: Vec<IdOnly> = query
             .select_only()
             .column(record::Column::Id)
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .offset(current_offset)
             .limit(page_size)
             .into_model::<IdOnly>()
@@ -599,6 +617,8 @@ impl RecordRepository for RecordRepo {
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .offset(current_offset)
             .limit(page_size)
             .all(db)
@@ -623,6 +643,8 @@ impl RecordRepository for RecordRepo {
         let record_models = RecordEntity::find()
             .join_rev(JoinType::InnerJoin, record_genre::Relation::Record.def())
             .filter(record_genre::Column::GenreId.eq(genre_id))
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .all(db)
             .await?;
         load_records_batch(db, record_models).await
@@ -645,6 +667,8 @@ impl RecordRepository for RecordRepo {
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .offset(current_offset)
             .limit(page_size)
             .all(db)
@@ -672,6 +696,8 @@ impl RecordRepository for RecordRepo {
                 idol_participation::Relation::Record.def(),
             )
             .filter(idol_participation::Column::IdolId.eq(idol_id))
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .all(db)
             .await?;
         load_records_batch(db, record_models).await
@@ -697,6 +723,8 @@ impl RecordRepository for RecordRepo {
 
         let total_items = query.clone().count(db).await?;
         let record_models = query
+            .order_by(record::Column::Date, Order::Desc)
+            .order_by(record::Column::Id, Order::Asc)
             .offset(current_offset)
             .limit(page_size)
             .all(db)
