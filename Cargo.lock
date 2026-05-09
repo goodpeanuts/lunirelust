@@ -1695,7 +1695,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 [[package]]
 name = "luneth"
 version = "0.1.0"
-source = "git+https://github.com/goodpeanuts/luneth.git?rev=773f2bf0ca3c15f1ee43470b49b92934341a8e31#773f2bf0ca3c15f1ee43470b49b92934341a8e31"
+source = "git+https://github.com/goodpeanuts/luneth.git?rev=5deeeed842aec01e89367d072c456758e01ea723#5deeeed842aec01e89367d072c456758e01ea723"
 dependencies = [
  "base64",
  "chrono",

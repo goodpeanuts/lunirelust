@@ -18,9 +18,9 @@ use crate::common::error::AppError;
 use crate::common::jwt::Claims;
 use crate::domains::crawl::domain::model::{PageResultStatus, TaskStatus, TaskType};
 use crate::domains::crawl::dto::task_dto::{
-    CodeResultResponse, ListTasksQuery, PageResultResponse, SseEvent, StartAutoRequest,
-    StartBatchRequest, StartUpdateRequest, TaskDetailResponse, TaskListItem, TaskListResponse,
-    TaskResponse, TaskSummary,
+    CodeResultResponse, CrawlerStatusResponse, ListTasksQuery, PageResultResponse, SseEvent,
+    StartAutoRequest, StartBatchRequest, StartUpdateRequest, TaskDetailResponse, TaskListItem,
+    TaskListResponse, TaskResponse, TaskSummary,
 };
 use validator::Validate as _;
 
@@ -46,7 +46,13 @@ pub async fn start_batch(
 
     let (task_id, _status) = state
         .crawl_service
-        .start_batch(&claims.sub, req.codes, req.mark_liked, req.mark_viewed)
+        .start_batch(
+            &claims.sub,
+            req.codes,
+            req.mark_liked,
+            req.mark_viewed,
+            req.base_url,
+        )
         .await?;
 
     Ok((
@@ -86,6 +92,7 @@ pub async fn start_auto(
             req.max_pages,
             req.mark_liked,
             req.mark_viewed,
+            req.base_url,
         )
         .await?;
 
@@ -120,7 +127,7 @@ pub async fn start_update(
 
     let (task_id, _status) = state
         .crawl_service
-        .start_update(&claims.sub, req.liked_only, req.created_after)
+        .start_update(&claims.sub, req.liked_only, req.created_after, req.base_url)
         .await?;
 
     Ok((
@@ -448,4 +455,49 @@ pub async fn stream_task(
         Box::pin(futures::stream::once(async move { Ok(initial_event) }).chain(live_stream));
 
     Ok(Sse::new(full_stream).keep_alive(KeepAlive::default()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/crawl/initialize",
+    responses(
+        (status = 200, description = "Crawler initialized", body = CrawlerStatusResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "Crawler is busy"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
+pub async fn initialize_crawler(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<impl IntoResponse, AppError> {
+    state.crawl_service.initialize_crawler().await?;
+
+    let status = state.crawl_service.crawler_status().await;
+    Ok(RestApiResponse::success(CrawlerStatusResponse {
+        initialized: status.initialized,
+        idle: status.idle,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/crawl/health",
+    responses(
+        (status = 200, description = "Crawler status", body = CrawlerStatusResponse),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
+pub async fn crawler_health(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> impl IntoResponse {
+    let status = state.crawl_service.crawler_status().await;
+    RestApiResponse::success(CrawlerStatusResponse {
+        initialized: status.initialized,
+        idle: status.idle,
+    })
 }

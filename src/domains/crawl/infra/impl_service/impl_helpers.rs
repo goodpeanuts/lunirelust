@@ -245,10 +245,10 @@ impl CrawlService {
 
         let genres: Vec<CreateGenreDto> = entry
             .genre
-            .values()
-            .map(|name| CreateGenreDto {
+            .iter()
+            .map(|(name, lnk)| CreateGenreDto {
                 name: name.clone(),
-                link: None,
+                link: Some(lnk.clone()),
                 manual: None,
             })
             .collect();
@@ -358,15 +358,29 @@ impl CrawlService {
     }
 
     pub(super) async fn save_images(&self, record_id: &str, images: &[ImageData]) -> i32 {
+        let dir = std::path::Path::new(&self.config.assets_private_path)
+            .join("images")
+            .join("record")
+            .join(record_id);
+
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::error!("Failed to create image dir for {record_id}: {e}");
+            return 0;
+        }
+
         let mut count = 0i32;
         for img in images {
-            match img.save_to_dir_path(
-                format!(
-                    "{}/images/record/{}",
-                    self.config.assets_private_path, record_id
-                ),
-                None,
-            ) {
+            let ext = match img.mime.as_str() {
+                "image/jpeg" => "jpg",
+                "image/png" => "png",
+                "image/gif" => "gif",
+                "image/webp" => "webp",
+                "image/bmp" => "bmp",
+                "image/svg+xml" => "svg",
+                _ => "bin",
+            };
+            let path = dir.join(format!("{}.{}", img.name, ext));
+            match std::fs::write(&path, &img.bytes) {
                 Ok(_) => count += 1,
                 Err(e) => {
                     tracing::warn!("Failed to save image for record {record_id}: {e}");

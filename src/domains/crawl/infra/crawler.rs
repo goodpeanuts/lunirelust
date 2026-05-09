@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
+use std::sync::Arc;
 
+use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
@@ -10,7 +13,14 @@ use crate::domains::crawl::dto::task_dto::SseEvent;
 #[derive(Debug)]
 pub enum RunnerCommand {
     Execute { task_id: i64 },
+    Initialize,
     Shutdown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CrawlerStatus {
+    pub initialized: bool,
+    pub idle: bool,
 }
 
 /// Manages the crawl task queue and runner.
@@ -21,6 +31,8 @@ pub struct CrawlTaskManager {
     cancellation_tokens: HashMap<i64, CancellationToken>,
     broadcast_tx: broadcast::Sender<SseEvent>,
     runner_tx: Option<std_mpsc::Sender<RunnerCommand>>,
+    initialized: Arc<AtomicBool>,
+    init_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl CrawlTaskManager {
@@ -31,11 +43,17 @@ impl CrawlTaskManager {
             cancellation_tokens: HashMap::new(),
             broadcast_tx,
             runner_tx: None,
+            initialized: Arc::new(AtomicBool::new(false)),
+            init_tx: None,
         }
     }
 
     pub fn set_runner_tx(&mut self, tx: std_mpsc::Sender<RunnerCommand>) {
         self.runner_tx = Some(tx);
+    }
+
+    pub fn set_init_watcher(&mut self, tx: tokio::sync::watch::Sender<bool>) {
+        self.init_tx = Some(tx);
     }
 
     pub fn broadcast_tx(&self) -> &broadcast::Sender<SseEvent> {
@@ -50,6 +68,18 @@ impl CrawlTaskManager {
         self.current_task.is_none() && self.queue.is_empty()
     }
 
+    pub fn initialized(&self) -> bool {
+        self.initialized.load(Ordering::Relaxed)
+    }
+
+    pub fn initialized_arc(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.initialized)
+    }
+
+    pub fn init_tx_clone(&self) -> Option<tokio::sync::watch::Sender<bool>> {
+        self.init_tx.clone()
+    }
+
     /// Returns true if the task was started immediately (no current task).
     /// When true, sends a `RunnerCommand::Execute` to the runner thread.
     pub fn enqueue(&mut self, task_id: i64) -> bool {
@@ -62,6 +92,24 @@ impl CrawlTaskManager {
         } else {
             self.queue.push_back(task_id);
             false
+        }
+    }
+
+    pub fn mark_initialized(&self) {
+        self.initialized.store(true, Ordering::Relaxed);
+        if let Some(tx) = &self.init_tx {
+            let _result: Result<(), _> = tx.send(true);
+        }
+    }
+
+    /// Sends an Initialize command to the runner thread.
+    /// Returns Err if `runner_tx` is not set.
+    pub fn send_initialize(&self) -> Result<(), String> {
+        if let Some(tx) = &self.runner_tx {
+            tx.send(RunnerCommand::Initialize)
+                .map_err(|e| e.to_string())
+        } else {
+            Err("runner not connected".to_owned())
         }
     }
 

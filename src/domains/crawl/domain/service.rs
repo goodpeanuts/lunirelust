@@ -9,7 +9,7 @@ use sea_orm::DatabaseConnection;
 use crate::common::config::Config;
 use crate::common::error::AppError;
 use crate::domains::crawl::domain::model::{CrawlTask, CrawlTaskDetail, TaskStatus, TaskType};
-use crate::domains::crawl::infra::crawler::CrawlTaskManager;
+use crate::domains::crawl::infra::crawler::{CrawlTaskManager, CrawlerStatus};
 use crate::domains::luna::{FileServiceTrait as LunaFileServiceTrait, RecordRepository};
 use crate::domains::user::InteractionRepository;
 
@@ -19,6 +19,7 @@ use super::repository::CrawlTaskRepository;
 /// because it runs exclusively on the dedicated crawl runner thread.
 #[async_trait(?Send)]
 pub trait CrawlerTrait {
+    async fn set_base_url(&self, base_url: String) -> Result<(), CrawlError>;
     async fn crawl_page(&self, url: &str) -> Result<Vec<RecordPiece>, CrawlError>;
     async fn crawl_recorder_with_imgs(
         &self,
@@ -46,6 +47,7 @@ pub trait CrawlServiceTrait: Send + Sync {
         codes: Vec<String>,
         mark_liked: bool,
         mark_viewed: bool,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError>;
 
     async fn start_auto(
@@ -55,6 +57,7 @@ pub trait CrawlServiceTrait: Send + Sync {
         max_pages: u32,
         mark_liked: bool,
         mark_viewed: bool,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError>;
 
     async fn start_update(
@@ -62,6 +65,7 @@ pub trait CrawlServiceTrait: Send + Sync {
         user_id: &str,
         liked_only: bool,
         created_after: Option<String>,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError>;
 
     async fn cancel_task(&self, user_id: &str, task_id: i64) -> Result<(), AppError>;
@@ -81,6 +85,10 @@ pub trait CrawlServiceTrait: Send + Sync {
     ) -> Result<Option<CrawlTaskDetail>, AppError>;
 
     fn task_manager(&self) -> Arc<tokio::sync::Mutex<CrawlTaskManager>>;
+
+    async fn initialize_crawler(&self) -> Result<(), AppError>;
+
+    async fn crawler_status(&self) -> CrawlerStatus;
 
     async fn reconcile_startup(&self);
 }

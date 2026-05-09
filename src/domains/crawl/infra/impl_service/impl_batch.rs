@@ -11,7 +11,8 @@ impl CrawlService {
     #[expect(
         clippy::let_underscore_must_use,
         clippy::let_underscore_untyped,
-        clippy::manual_let_else
+        clippy::manual_let_else,
+        clippy::too_many_lines
     )]
     pub async fn dispatch_and_run(&self, task_id: i64, crawler: &dyn CrawlerTrait) {
         let task = if let Ok(Some(t)) = self.repo.get_task_by_id(&self.db, task_id).await {
@@ -79,6 +80,24 @@ impl CrawlService {
         }
 
         let user_id = task.user_id.clone();
+        match input {
+            CrawlTaskInput::Batch(ref bi) => {
+                if let Err(e) = crawler.set_base_url(bi.base_url.clone()).await {
+                    tracing::error!("Task {task_id}: set_base_url failed: {e}");
+                }
+            }
+            CrawlTaskInput::Auto(ref ai) => {
+                if let Err(e) = crawler.set_base_url(ai.base_url.clone()).await {
+                    tracing::error!("Task {task_id}: set_base_url failed: {e}");
+                }
+            }
+            CrawlTaskInput::Update(ref ui) => {
+                if let Err(e) = crawler.set_base_url(ui.base_url.clone()).await {
+                    tracing::error!("Task {task_id}: set_base_url failed: {e}");
+                }
+            }
+        }
+
         match input {
             CrawlTaskInput::Batch(bi) => {
                 self.execute_batch_task(

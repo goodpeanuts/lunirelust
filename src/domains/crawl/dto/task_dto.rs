@@ -14,6 +14,7 @@ fn default_false() -> bool {
 pub struct StartBatchRequest {
     #[validate(length(min = 1, message = "Codes list must not be empty"))]
     pub codes: Vec<String>,
+    pub base_url: Option<String>,
     #[serde(default = "default_false")]
     pub mark_liked: bool,
     #[serde(default = "default_false")]
@@ -27,6 +28,7 @@ pub struct StartAutoRequest {
     pub start_url: String,
     #[validate(range(min = 1, message = "max_pages must be at least 1"))]
     pub max_pages: u32,
+    pub base_url: Option<String>,
     #[serde(default = "default_false")]
     pub mark_liked: bool,
     #[serde(default = "default_false")]
@@ -40,6 +42,7 @@ pub struct StartUpdateRequest {
     #[serde(default = "default_false")]
     pub liked_only: bool,
     pub created_after: Option<String>,
+    pub base_url: Option<String>,
 }
 
 impl Validate for StartUpdateRequest {
@@ -116,6 +119,12 @@ pub struct TaskDetailResponse {
 pub struct TaskListResponse {
     pub tasks: Vec<TaskListItem>,
     pub total: u64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CrawlerStatusResponse {
+    pub initialized: bool,
+    pub idle: bool,
 }
 
 // --- SSE Event DTOs ---
@@ -247,6 +256,7 @@ mod tests {
     fn batch_request_validates_empty_codes() {
         let req = StartBatchRequest {
             codes: vec![],
+            base_url: None,
             mark_liked: false,
             mark_viewed: false,
         };
@@ -257,6 +267,7 @@ mod tests {
     fn batch_request_accepts_valid_codes() {
         let req = StartBatchRequest {
             codes: vec!["ABC-123".to_owned()],
+            base_url: None,
             mark_liked: true,
             mark_viewed: false,
         };
@@ -268,6 +279,7 @@ mod tests {
         let req = StartAutoRequest {
             start_url: "https://example.com".to_owned(),
             max_pages: 0,
+            base_url: None,
             mark_liked: false,
             mark_viewed: false,
         };
@@ -279,6 +291,7 @@ mod tests {
         let req = StartAutoRequest {
             start_url: "https://example.com".to_owned(),
             max_pages: 5,
+            base_url: None,
             mark_liked: true,
             mark_viewed: true,
         };
@@ -290,6 +303,7 @@ mod tests {
         let req = StartUpdateRequest {
             liked_only: false,
             created_after: None,
+            base_url: None,
         };
         assert!(req.validate().is_err());
     }
@@ -299,6 +313,7 @@ mod tests {
         let req = StartUpdateRequest {
             liked_only: true,
             created_after: None,
+            base_url: None,
         };
         assert!(req.validate().is_ok());
     }
@@ -308,6 +323,7 @@ mod tests {
         let req = StartUpdateRequest {
             liked_only: false,
             created_after: Some("2024-01-01".to_owned()),
+            base_url: None,
         };
         assert!(req.validate().is_ok());
     }

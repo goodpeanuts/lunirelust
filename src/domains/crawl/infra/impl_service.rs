@@ -22,7 +22,7 @@ use crate::domains::crawl::domain::model::{
 use crate::domains::crawl::domain::repository::CrawlTaskRepository;
 use crate::domains::crawl::domain::service::CrawlServiceTrait;
 use crate::domains::crawl::dto::task_dto::{SseEvent, TaskSummary};
-use crate::domains::crawl::infra::crawler::{CancelAction, CrawlTaskManager};
+use crate::domains::crawl::infra::crawler::{CancelAction, CrawlTaskManager, CrawlerStatus};
 use crate::domains::luna::{FileServiceTrait as LunaFileServiceTrait, RecordRepository};
 use crate::domains::user::InteractionRepository;
 
@@ -41,6 +41,24 @@ pub struct CrawlService {
 }
 
 impl CrawlService {
+    fn resolve_base_url(base_url: Option<String>) -> Result<String, AppError> {
+        match base_url {
+            Some(url) => {
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return Err(AppError::ValidationError(
+                        "base_url must start with http:// or https://".to_owned(),
+                    ));
+                }
+                let mut url = url;
+                if !url.ends_with('/') {
+                    url.push('/');
+                }
+                Ok(url)
+            }
+            None => Ok(luneth::crawl::CrawlConfig::default().base_url),
+        }
+    }
+
     pub fn new(
         db: DatabaseConnection,
         config: Config,
@@ -90,12 +108,15 @@ impl CrawlServiceTrait for CrawlService {
         codes: Vec<String>,
         mark_liked: bool,
         mark_viewed: bool,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError> {
         let canonical_codes: Vec<String> = codes.into_iter().map(|c| c.to_uppercase()).collect();
         let total = canonical_codes.len() as i32;
+        let base_url = Self::resolve_base_url(base_url)?;
 
         let input = CrawlTaskInput::Batch(BatchTaskInput {
             codes: canonical_codes.clone(),
+            base_url,
             mark_liked,
             mark_viewed,
         });
@@ -138,10 +159,14 @@ impl CrawlServiceTrait for CrawlService {
         max_pages: u32,
         mark_liked: bool,
         mark_viewed: bool,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError> {
+        let base_url = Self::resolve_base_url(base_url)?;
+
         let input = CrawlTaskInput::Auto(AutoTaskInput {
             start_url,
             max_pages,
+            base_url,
             mark_liked,
             mark_viewed,
         });
@@ -182,6 +207,7 @@ impl CrawlServiceTrait for CrawlService {
         user_id: &str,
         liked_only: bool,
         created_after: Option<String>,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError> {
         let target_ids = self
             .resolve_update_targets(user_id, liked_only, created_after.as_deref())
@@ -193,6 +219,7 @@ impl CrawlServiceTrait for CrawlService {
             ));
         }
 
+        let base_url = Self::resolve_base_url(base_url)?;
         let filters = UpdateFilters {
             liked_only,
             created_after: created_after.clone(),
@@ -200,6 +227,7 @@ impl CrawlServiceTrait for CrawlService {
         let input = CrawlTaskInput::Update(UpdateTaskInput {
             filters,
             target_ids: target_ids.clone(),
+            base_url,
         });
         let payload = serde_json::to_string(&input).map_err(|e| {
             AppError::InternalErrorWithMessage(format!("Failed to serialize input: {e}"))
@@ -334,6 +362,56 @@ impl CrawlServiceTrait for CrawlService {
 
     fn task_manager(&self) -> Arc<tokio::sync::Mutex<CrawlTaskManager>> {
         self.task_manager.clone()
+    }
+
+    async fn initialize_crawler(&self) -> Result<(), AppError> {
+        let mgr = self.task_manager.lock().await;
+
+        if mgr.initialized() {
+            return Ok(());
+        }
+
+        if !mgr.is_idle() {
+            return Err(AppError::Conflict(
+                "Crawler is busy executing a task".to_owned(),
+            ));
+        }
+
+        mgr.send_initialize()
+            .map_err(|e| AppError::InternalErrorWithMessage(format!("Failed to send init: {e}")))?;
+
+        let mut rx = mgr
+            .init_tx_clone()
+            .ok_or_else(|| AppError::InternalErrorWithMessage("Init watcher not set".to_owned()))?
+            .subscribe();
+
+        drop(mgr);
+
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            // Wait for the value to change from the initial false.
+            while rx.changed().await.is_ok() {
+                if *rx.borrow() {
+                    return Ok(());
+                }
+            }
+            Err(AppError::InternalErrorWithMessage(
+                "Init watcher channel closed".to_owned(),
+            ))
+        })
+        .await
+        .map_err(|_elapsed| {
+            AppError::InternalErrorWithMessage(
+                "Crawler initialization timed out after 60s".to_owned(),
+            )
+        })?
+    }
+
+    async fn crawler_status(&self) -> CrawlerStatus {
+        let mgr = self.task_manager.lock().await;
+        CrawlerStatus {
+            initialized: mgr.initialized(),
+            idle: mgr.is_idle(),
+        }
     }
 
     #[expect(clippy::let_underscore_must_use, clippy::let_underscore_untyped)]

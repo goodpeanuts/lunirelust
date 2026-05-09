@@ -179,6 +179,7 @@ pub enum CrawlTaskInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchTaskInput {
     pub codes: Vec<String>,
+    pub base_url: String,
     pub mark_liked: bool,
     pub mark_viewed: bool,
 }
@@ -187,6 +188,7 @@ pub struct BatchTaskInput {
 pub struct AutoTaskInput {
     pub start_url: String,
     pub max_pages: u32,
+    pub base_url: String,
     pub mark_liked: bool,
     pub mark_viewed: bool,
 }
@@ -195,6 +197,7 @@ pub struct AutoTaskInput {
 pub struct UpdateTaskInput {
     pub filters: UpdateFilters,
     pub target_ids: Vec<String>,
+    pub base_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

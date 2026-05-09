@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
@@ -48,6 +49,13 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
 
     let mut task_mgr = CrawlTaskManager::new(broadcast_tx);
     task_mgr.set_runner_tx(runner_tx);
+
+    let (init_tx, _init_rx) = tokio::sync::watch::channel(false);
+    task_mgr.set_init_watcher(init_tx);
+
+    // Clone shared state for the runner thread to signal initialization.
+    let initialized_flag = task_mgr.initialized_arc();
+    let init_tx_for_runner = task_mgr.init_tx_clone();
     let task_manager = Arc::new(Mutex::new(task_mgr));
 
     let crawl_service: Arc<CrawlService> = Arc::new(CrawlService::new(
@@ -89,7 +97,29 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
                             crawl_svc_for_runner
                                 .dispatch_and_run(task_id, &crawler)
                                 .await;
+                            // First successful task implies initialization.
+                            if !initialized_flag.load(Ordering::Relaxed) {
+                                initialized_flag.store(true, Ordering::Relaxed);
+                                if let Some(tx) = &init_tx_for_runner {
+                                    let _result: Result<(), _> = tx.send(true);
+                                }
+                            }
                         }
+                        RunnerCommand::Initialize => match crawler.ensure_started().await {
+                            Ok(()) => {
+                                tracing::info!("Crawl module initialized successfully");
+                                initialized_flag.store(true, Ordering::Relaxed);
+                                if let Some(tx) = &init_tx_for_runner {
+                                    let _result: Result<(), _> = tx.send(true);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Crawl module initialization failed: {e}");
+                                if let Some(tx) = &init_tx_for_runner {
+                                    let _result: Result<(), _> = tx.send(false);
+                                }
+                            }
+                        },
                         RunnerCommand::Shutdown => break,
                     }
                 }
