@@ -205,13 +205,18 @@ impl CrawlServiceTrait for CrawlService {
     async fn start_update(
         &self,
         user_id: &str,
+        codes: Option<Vec<String>>,
         liked_only: bool,
         created_after: Option<String>,
         base_url: Option<String>,
+        update_images: bool,
     ) -> Result<(i64, TaskStatus), AppError> {
-        let target_ids = self
-            .resolve_update_targets(user_id, liked_only, created_after.as_deref())
-            .await?;
+        let target_ids = if let Some(ref c) = codes {
+            c.iter().map(|s| s.to_uppercase()).collect()
+        } else {
+            self.resolve_update_targets(user_id, liked_only, created_after.as_deref())
+                .await?
+        };
 
         if target_ids.is_empty() {
             return Err(AppError::ValidationError(
@@ -228,6 +233,7 @@ impl CrawlServiceTrait for CrawlService {
             filters,
             target_ids: target_ids.clone(),
             base_url,
+            update_images,
         });
         let payload = serde_json::to_string(&input).map_err(|e| {
             AppError::InternalErrorWithMessage(format!("Failed to serialize input: {e}"))

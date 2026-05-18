@@ -127,7 +127,14 @@ pub async fn start_update(
 
     let (task_id, _status) = state
         .crawl_service
-        .start_update(&claims.sub, req.liked_only, req.created_after, req.base_url)
+        .start_update(
+            &claims.sub,
+            req.codes,
+            req.liked_only,
+            req.created_after,
+            req.base_url,
+            req.update_images,
+        )
         .await?;
 
     Ok((

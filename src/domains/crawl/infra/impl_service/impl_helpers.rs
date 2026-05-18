@@ -38,141 +38,137 @@ impl CrawlService {
     pub(super) async fn process_single_code(
         &self,
         task_id: i64,
-        code: &str,
+        input: CrawlInput,
         mark_liked: bool,
         mark_viewed: bool,
         user_id: &str,
         crawler: &dyn CrawlerTrait,
     ) -> ProcessResult {
-        match self.record_repo.find_by_id(&self.db, code.to_owned()).await {
+        let code = input.get_code().to_uppercase();
+        match self.record_repo.find_by_id(&self.db, code.clone()).await {
             Ok(Some(_)) => {
                 if mark_liked {
                     let _ = self
                         .interaction_repo
-                        .mark_liked(&self.db, user_id, code)
+                        .mark_liked(&self.db, user_id, &code)
                         .await;
                 }
                 if mark_viewed {
                     let _ = self
                         .interaction_repo
-                        .mark_viewed(&self.db, user_id, code)
+                        .mark_viewed(&self.db, user_id, &code)
                         .await;
                 }
                 let _ = self
                     .repo
-                    .create_code_result(&self.db, task_id, code, "skipped", Some(code), 0, None)
+                    .create_code_result(&self.db, task_id, &code, "skipped", Some(&code), 0, None)
                     .await;
-                self.emit_code_progress_async(task_id, user_id, code, "skipped", Some(code), 0)
+                self.emit_code_progress_async(task_id, user_id, &code, "skipped", Some(&code), 0)
                     .await;
                 ProcessResult::Skipped
             }
-            Ok(None) => {
-                match crawler
-                    .crawl_recorder_with_imgs(CrawlInput::Code(code.to_owned()))
-                    .await
-                {
-                    Ok((recorder, images)) => {
-                        match self
-                            .insert_crawled_record(&recorder.record, &images, code)
-                            .await
-                        {
-                            Ok((record_id, images_downloaded, is_partial)) => {
-                                if mark_liked {
-                                    let _ = self
-                                        .interaction_repo
-                                        .mark_liked(&self.db, user_id, &record_id)
-                                        .await;
-                                }
-                                if mark_viewed {
-                                    let _ = self
-                                        .interaction_repo
-                                        .mark_viewed(&self.db, user_id, &record_id)
-                                        .await;
-                                }
-
-                                let status_str = if is_partial { "partial" } else { "success" };
+            Ok(None) => match crawler.crawl_recorder_with_imgs(input).await {
+                Ok((recorder, images)) => {
+                    match self
+                        .insert_crawled_record(&recorder.record, &images, &code)
+                        .await
+                    {
+                        Ok((record_id, images_downloaded, is_partial)) => {
+                            if mark_liked {
                                 let _ = self
-                                    .repo
-                                    .create_code_result(
-                                        &self.db,
-                                        task_id,
-                                        code,
-                                        status_str,
-                                        Some(&record_id),
-                                        images_downloaded,
-                                        None,
-                                    )
+                                    .interaction_repo
+                                    .mark_liked(&self.db, user_id, &record_id)
                                     .await;
-                                self.emit_code_progress_async(
+                            }
+                            if mark_viewed {
+                                let _ = self
+                                    .interaction_repo
+                                    .mark_viewed(&self.db, user_id, &record_id)
+                                    .await;
+                            }
+
+                            let status_str = if is_partial { "partial" } else { "success" };
+                            let _ = self
+                                .repo
+                                .create_code_result(
+                                    &self.db,
                                     task_id,
-                                    user_id,
-                                    code,
+                                    &code,
                                     status_str,
                                     Some(&record_id),
                                     images_downloaded,
+                                    None,
                                 )
                                 .await;
-
-                                if is_partial {
-                                    ProcessResult::Partial
-                                } else {
-                                    ProcessResult::Success
-                                }
-                            }
-                            Err(e) => {
-                                let _ = self
-                                    .repo
-                                    .create_code_result(
-                                        &self.db,
-                                        task_id,
-                                        code,
-                                        "failed",
-                                        None,
-                                        0,
-                                        Some(&e.to_string()),
-                                    )
-                                    .await;
-                                self.emit_code_progress_async(
-                                    task_id, user_id, code, "failed", None, 0,
-                                )
-                                .await;
-                                ProcessResult::Failed
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = self
-                            .repo
-                            .create_code_result(
-                                &self.db,
+                            self.emit_code_progress_async(
                                 task_id,
-                                code,
-                                "failed",
-                                None,
-                                0,
-                                Some(&format!("{e}")),
+                                user_id,
+                                &code,
+                                status_str,
+                                Some(&record_id),
+                                images_downloaded,
                             )
                             .await;
-                        self.emit_code_progress_async(task_id, user_id, code, "failed", None, 0)
+
+                            if is_partial {
+                                ProcessResult::Partial
+                            } else {
+                                ProcessResult::Success
+                            }
+                        }
+                        Err(e) => {
+                            let _ = self
+                                .repo
+                                .create_code_result(
+                                    &self.db,
+                                    task_id,
+                                    &code,
+                                    "failed",
+                                    None,
+                                    0,
+                                    Some(&e.to_string()),
+                                )
+                                .await;
+                            self.emit_code_progress_async(
+                                task_id, user_id, &code, "failed", None, 0,
+                            )
                             .await;
-                        ProcessResult::Failed
+                            ProcessResult::Failed
+                        }
                     }
                 }
-            }
+                Err(e) => {
+                    let _ = self
+                        .repo
+                        .create_code_result(
+                            &self.db,
+                            task_id,
+                            &code,
+                            "failed",
+                            None,
+                            0,
+                            Some(&format!("{e}")),
+                        )
+                        .await;
+                    self.emit_code_progress_async(task_id, user_id, &code, "failed", None, 0)
+                        .await;
+                    ProcessResult::Failed
+                }
+            },
             Err(e) => {
                 let _ = self
                     .repo
                     .create_code_result(
                         &self.db,
                         task_id,
-                        code,
+                        &code,
                         "failed",
                         None,
                         0,
                         Some(&format!("DB error: {e}")),
                     )
                     .await;
-                self.emit_code_progress_async(task_id, user_id, code, "failed", None, 0)
+                self.emit_code_progress_async(task_id, user_id, &code, "failed", None, 0)
                     .await;
                 ProcessResult::Failed
             }
@@ -388,6 +384,45 @@ impl CrawlService {
             }
         }
         count
+    }
+
+    pub(super) async fn update_images_if_needed(
+        &self,
+        record_id: &str,
+        current_local_count: i32,
+        remote_images: &[ImageData],
+    ) -> i32 {
+        let remote_count = remote_images.len() as i32;
+
+        let main_image_exists = std::path::Path::new(&self.config.assets_private_path)
+            .join("images")
+            .join("record")
+            .join(record_id)
+            .join(format!("{record_id}.jpg"))
+            .exists();
+
+        if remote_count <= current_local_count && main_image_exists {
+            return 0;
+        }
+
+        tracing::info!(
+            "Updating images for {record_id}: local={current_local_count}, remote={remote_count}, main_image_exists={main_image_exists}"
+        );
+
+        let new_count = self.save_images(record_id, remote_images).await;
+
+        if new_count > 0 {
+            if let Err(e) =
+                Self::update_local_img_count_direct(&self.db, record_id, new_count).await
+            {
+                tracing::warn!(
+                    "failed to update local img count for record {}: {e}",
+                    record_id
+                );
+            }
+        }
+
+        new_count.saturating_sub(current_local_count)
     }
 
     pub(super) async fn insert_nested_outbox_events(

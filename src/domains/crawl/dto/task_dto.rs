@@ -39,21 +39,27 @@ pub struct StartAutoRequest {
 #[serde(deny_unknown_fields)]
 #[schema(example = json!({"liked_only": true}))]
 pub struct StartUpdateRequest {
+    pub codes: Option<Vec<String>>,
     #[serde(default = "default_false")]
     pub liked_only: bool,
     pub created_after: Option<String>,
     pub base_url: Option<String>,
+    #[serde(default = "default_false")]
+    pub update_images: bool,
 }
 
 impl Validate for StartUpdateRequest {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         let mut errors = validator::ValidationErrors::new();
 
-        if !self.liked_only && self.created_after.is_none() {
+        let has_codes = self.codes.as_ref().is_some_and(|c| !c.is_empty());
+        let has_filters = self.liked_only || self.created_after.is_some();
+
+        if !has_codes && !has_filters {
             errors.add(
                 "filters",
                 validator::ValidationError::new(
-                    "Update mode requires at least one filter (liked_only or created_after)",
+                    "Update mode requires codes or at least one filter (liked_only or created_after)",
                 ),
             );
         }
@@ -301,9 +307,11 @@ mod tests {
     #[test]
     fn update_request_requires_filter() {
         let req = StartUpdateRequest {
+            codes: None,
             liked_only: false,
             created_after: None,
             base_url: None,
+            update_images: false,
         };
         assert!(req.validate().is_err());
     }
@@ -311,9 +319,11 @@ mod tests {
     #[test]
     fn update_request_accepts_liked_only() {
         let req = StartUpdateRequest {
+            codes: None,
             liked_only: true,
             created_after: None,
             base_url: None,
+            update_images: false,
         };
         assert!(req.validate().is_ok());
     }
@@ -321,9 +331,11 @@ mod tests {
     #[test]
     fn update_request_accepts_created_after() {
         let req = StartUpdateRequest {
+            codes: None,
             liked_only: false,
             created_after: Some("2024-01-01".to_owned()),
             base_url: None,
+            update_images: false,
         };
         assert!(req.validate().is_ok());
     }

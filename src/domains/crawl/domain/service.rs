@@ -63,9 +63,11 @@ pub trait CrawlServiceTrait: Send + Sync {
     async fn start_update(
         &self,
         user_id: &str,
+        codes: Option<Vec<String>>,
         liked_only: bool,
         created_after: Option<String>,
         base_url: Option<String>,
+        update_images: bool,
     ) -> Result<(i64, TaskStatus), AppError>;
 
     async fn cancel_task(&self, user_id: &str, task_id: i64) -> Result<(), AppError>;

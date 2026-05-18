@@ -198,6 +198,8 @@ pub struct UpdateTaskInput {
     pub filters: UpdateFilters,
     pub target_ids: Vec<String>,
     pub base_url: String,
+    #[serde(default)]
+    pub update_images: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

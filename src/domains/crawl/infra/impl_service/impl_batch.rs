@@ -125,8 +125,15 @@ impl CrawlService {
                 .await;
             }
             CrawlTaskInput::Update(ui) => {
-                self.execute_update_task(task_id, ui.target_ids, user_id, crawler, cancel_token)
-                    .await;
+                self.execute_update_task(
+                    task_id,
+                    ui.target_ids,
+                    user_id,
+                    crawler,
+                    cancel_token,
+                    ui.update_images,
+                )
+                .await;
             }
         }
 

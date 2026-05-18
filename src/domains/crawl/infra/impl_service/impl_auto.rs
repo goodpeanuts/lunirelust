@@ -1,3 +1,4 @@
+use luneth::crawl::CrawlInput;
 use tokio_util::sync::CancellationToken;
 
 use crate::domains::crawl::domain::model::{PageResultStatus, TaskStatus};
@@ -108,11 +109,10 @@ impl CrawlService {
                             break;
                         }
 
-                        let code = piece.code.to_uppercase();
                         match self
                             .process_single_code(
                                 task_id,
-                                &code,
+                                CrawlInput::Piece(piece.clone()),
                                 mark_liked,
                                 mark_viewed,
                                 &user_id,

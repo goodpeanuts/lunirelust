@@ -64,6 +64,7 @@ impl CrawlService {
         user_id: String,
         crawler: &dyn CrawlerTrait,
         cancel_token: CancellationToken,
+        update_images: bool,
     ) {
         let _ = self.repo.update_task_started(&self.db, task_id).await;
 
@@ -159,7 +160,7 @@ impl CrawlService {
                 .crawl_recorder_with_imgs(CrawlInput::Code(record_id.clone()))
                 .await
             {
-                Ok((recorder, _images)) => {
+                Ok((recorder, images)) => {
                     let new_links: Vec<CreateLinkDto> = recorder
                         .record
                         .share_magnet_links
@@ -182,6 +183,19 @@ impl CrawlService {
                         .update_record_links_via_repo(record_id, &new_links)
                         .await;
 
+                    let mut images_downloaded = 0i32;
+                    if update_images {
+                        if let Ok(Some(rec)) = self
+                            .record_repo
+                            .find_by_id(&self.db, record_id.clone())
+                            .await
+                        {
+                            images_downloaded = self
+                                .update_images_if_needed(record_id, rec.local_img_count, &images)
+                                .await;
+                        }
+                    }
+
                     match changed {
                         Ok(true) => {
                             success_count += 1;
@@ -193,7 +207,7 @@ impl CrawlService {
                                     record_id,
                                     "success",
                                     Some(record_id),
-                                    0,
+                                    images_downloaded,
                                     None,
                                 )
                                 .await;
@@ -203,33 +217,58 @@ impl CrawlService {
                                 record_id,
                                 "success",
                                 Some(record_id),
-                                0,
+                                images_downloaded,
                             )
                             .await;
                         }
                         Ok(false) => {
-                            skip_count += 1;
-                            let _ = self
-                                .repo
-                                .create_code_result(
-                                    &self.db,
+                            if images_downloaded > 0 {
+                                success_count += 1;
+                                let _ = self
+                                    .repo
+                                    .create_code_result(
+                                        &self.db,
+                                        task_id,
+                                        record_id,
+                                        "success",
+                                        Some(record_id),
+                                        images_downloaded,
+                                        None,
+                                    )
+                                    .await;
+                                self.emit_code_progress_async(
                                     task_id,
+                                    &user_id,
+                                    record_id,
+                                    "success",
+                                    Some(record_id),
+                                    images_downloaded,
+                                )
+                                .await;
+                            } else {
+                                skip_count += 1;
+                                let _ = self
+                                    .repo
+                                    .create_code_result(
+                                        &self.db,
+                                        task_id,
+                                        record_id,
+                                        "skipped",
+                                        Some(record_id),
+                                        0,
+                                        None,
+                                    )
+                                    .await;
+                                self.emit_code_progress_async(
+                                    task_id,
+                                    &user_id,
                                     record_id,
                                     "skipped",
                                     Some(record_id),
                                     0,
-                                    None,
                                 )
                                 .await;
-                            self.emit_code_progress_async(
-                                task_id,
-                                &user_id,
-                                record_id,
-                                "skipped",
-                                Some(record_id),
-                                0,
-                            )
-                            .await;
+                            }
                         }
                         Err(e) => {
                             fail_count += 1;
@@ -241,7 +280,7 @@ impl CrawlService {
                                     record_id,
                                     "failed",
                                     Some(record_id),
-                                    0,
+                                    images_downloaded,
                                     Some(&e.to_string()),
                                 )
                                 .await;
@@ -251,7 +290,7 @@ impl CrawlService {
                                 record_id,
                                 "failed",
                                 Some(record_id),
-                                0,
+                                images_downloaded,
                             )
                             .await;
                         }
