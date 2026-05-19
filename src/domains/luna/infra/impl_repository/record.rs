@@ -372,19 +372,29 @@ impl RecordRepository for RecordRepo {
         }
 
         // Handle idol associations
-        for idol_dto in record.idols {
-            let name = idol_dto.name.clone();
-            let idol_repo = IdolRepo;
-            let (idol_id, _) = idol_repo.create(txn, idol_dto).await?;
-            nested.idols.push((idol_id, name));
-
+        if record.idols.is_empty() {
             let idol_participation = idol_participation::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
-                idol_id: Set(idol_id),
+                idol_id: Set(0),
                 record_id: Set(record.id.clone()),
-                manual: Set(false), // Manually created association
+                manual: Set(false),
             };
             idol_participation.insert(txn).await?;
+        } else {
+            for idol_dto in record.idols {
+                let name = idol_dto.name.clone();
+                let idol_repo = IdolRepo;
+                let (idol_id, _) = idol_repo.create(txn, idol_dto).await?;
+                nested.idols.push((idol_id, name));
+
+                let idol_participation = idol_participation::ActiveModel {
+                    id: sea_orm::ActiveValue::NotSet,
+                    idol_id: Set(idol_id),
+                    record_id: Set(record.id.clone()),
+                    manual: Set(false),
+                };
+                idol_participation.insert(txn).await?;
+            }
         }
 
         // Handle links (skip empty/whitespace URLs, deduplicate by URL)
