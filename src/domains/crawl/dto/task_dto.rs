@@ -48,6 +48,12 @@ pub struct StartUpdateRequest {
     pub update_images: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StartIdolRequest {
+    pub base_url: Option<String>,
+}
+
 impl Validate for StartUpdateRequest {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         let mut errors = validator::ValidationErrors::new();
@@ -159,6 +165,15 @@ pub enum SseEvent {
         record_id: Option<String>,
         images_downloaded: i32,
     },
+    #[serde(rename = "task:idol:progress")]
+    IdolProgress {
+        task_id: i64,
+        user_id: String,
+        idol_id: i64,
+        idol_name: String,
+        status: String,
+        images_downloaded: i32,
+    },
     #[serde(rename = "task:stats")]
     Stats {
         task_id: i64,
@@ -206,6 +221,7 @@ impl SseEvent {
             Self::TaskStarted { task_id, .. }
             | Self::PageStart { task_id, .. }
             | Self::CodeProgress { task_id, .. }
+            | Self::IdolProgress { task_id, .. }
             | Self::Stats { task_id, .. }
             | Self::PageComplete { task_id, .. }
             | Self::TaskCompleted { task_id, .. }
@@ -218,6 +234,7 @@ impl SseEvent {
             Self::TaskStarted { user_id, .. }
             | Self::PageStart { user_id, .. }
             | Self::CodeProgress { user_id, .. }
+            | Self::IdolProgress { user_id, .. }
             | Self::Stats { user_id, .. }
             | Self::PageComplete { user_id, .. }
             | Self::TaskCompleted { user_id, .. }
@@ -237,6 +254,7 @@ impl SseEvent {
             Self::TaskStarted { .. } => "task:started",
             Self::PageStart { .. } => "task:page:start",
             Self::CodeProgress { .. } => "task:code:progress",
+            Self::IdolProgress { .. } => "task:idol:progress",
             Self::Stats { .. } => "task:stats",
             Self::PageComplete { .. } => "task:page:complete",
             Self::TaskCompleted { .. } => "task:completed",
@@ -406,6 +424,8 @@ mod tests {
         assert_eq!(TaskType::from_str("batch"), Some(TaskType::Batch));
         assert_eq!(TaskType::from_str("auto"), Some(TaskType::Auto));
         assert_eq!(TaskType::from_str("update"), Some(TaskType::Update));
+        assert_eq!(TaskType::from_str("idol"), Some(TaskType::Idol));
+        assert_eq!(TaskType::Idol.as_str(), "idol");
         assert_eq!(TaskType::from_str("invalid"), None);
     }
 }

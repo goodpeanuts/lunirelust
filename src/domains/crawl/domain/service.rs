@@ -25,6 +25,8 @@ pub trait CrawlerTrait {
         &self,
         input: CrawlInput,
     ) -> Result<(Recorder, Arc<Vec<ImageData>>), CrawlError>;
+
+    async fn crawl_idol_image(&self, link: &str) -> Result<ImageData, CrawlError>;
 }
 
 #[async_trait]
@@ -68,6 +70,12 @@ pub trait CrawlServiceTrait: Send + Sync {
         created_after: Option<String>,
         base_url: Option<String>,
         update_images: bool,
+    ) -> Result<(i64, TaskStatus), AppError>;
+
+    async fn start_idol(
+        &self,
+        user_id: &str,
+        base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError>;
 
     async fn cancel_task(&self, user_id: &str, task_id: i64) -> Result<(), AppError>;

@@ -109,6 +109,28 @@ impl CrawlerTrait for LunethCrawler {
             .ok_or_else(|| CrawlError::RecordError("Crawler not initialized".to_owned()))?;
         crawler.crawl_recorder_with_imgs(input).await
     }
+
+    #[expect(clippy::await_holding_refcell_ref)]
+    async fn crawl_idol_image(&self, link: &str) -> Result<ImageData, CrawlError> {
+        self.ensure_started().await?;
+        let full_url = {
+            let base = self.config.borrow().base_url.clone();
+            if link.starts_with("http") {
+                link.to_owned()
+            } else {
+                format!(
+                    "{}/{}",
+                    base.trim_end_matches('/'),
+                    link.trim_start_matches('/')
+                )
+            }
+        };
+        let mut guard = self.inner.borrow_mut();
+        let crawler = guard
+            .as_mut()
+            .ok_or_else(|| CrawlError::RecordError("Crawler not initialized".to_owned()))?;
+        crawler.crawl_idol_image(&full_url).await
+    }
 }
 
 #[cfg(test)]

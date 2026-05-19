@@ -19,8 +19,8 @@ use crate::common::jwt::Claims;
 use crate::domains::crawl::domain::model::{PageResultStatus, TaskStatus, TaskType};
 use crate::domains::crawl::dto::task_dto::{
     CodeResultResponse, CrawlerStatusResponse, ListTasksQuery, PageResultResponse, SseEvent,
-    StartAutoRequest, StartBatchRequest, StartUpdateRequest, TaskDetailResponse, TaskListItem,
-    TaskListResponse, TaskResponse, TaskSummary,
+    StartAutoRequest, StartBatchRequest, StartIdolRequest, StartUpdateRequest, TaskDetailResponse,
+    TaskListItem, TaskListResponse, TaskResponse, TaskSummary,
 };
 use validator::Validate as _;
 
@@ -135,6 +135,37 @@ pub async fn start_update(
             req.base_url,
             req.update_images,
         )
+        .await?;
+
+    Ok((
+        axum::http::StatusCode::ACCEPTED,
+        RestApiResponse::success(TaskResponse {
+            task_id,
+            status: "queued".to_owned(),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/crawl/idol",
+    request_body = StartIdolRequest,
+    responses(
+        (status = 202, description = "Idol image crawl task created", body = TaskResponse),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
+pub async fn start_idol(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::Json(req): axum::Json<StartIdolRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let (task_id, _status) = state
+        .crawl_service
+        .start_idol(&claims.sub, req.base_url)
         .await?;
 
     Ok((

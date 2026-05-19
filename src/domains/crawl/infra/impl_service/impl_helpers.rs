@@ -386,6 +386,43 @@ impl CrawlService {
         count
     }
 
+    pub(super) fn save_idol_image(&self, idol_name: &str, image: &ImageData) -> i32 {
+        let ext = match image.mime.as_str() {
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/bmp" => "bmp",
+            "image/svg+xml" => "svg",
+            other => {
+                tracing::warn!(
+                    "Rejecting non-image data for idol {idol_name}: mime={other}, size={}",
+                    image.bytes.len()
+                );
+                return 0;
+            }
+        };
+
+        let dir = std::path::Path::new(&self.config.assets_private_path)
+            .join("images")
+            .join("idol")
+            .join(idol_name);
+
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::error!("Failed to create image dir for idol {idol_name}: {e}");
+            return 0;
+        }
+
+        let path = dir.join(format!("{}.{}", image.name, ext));
+        match std::fs::write(&path, &image.bytes) {
+            Ok(_) => 1,
+            Err(e) => {
+                tracing::warn!("Failed to save image for idol {idol_name}: {e}");
+                0
+            }
+        }
+    }
+
     pub(super) async fn update_images_if_needed(
         &self,
         record_id: &str,

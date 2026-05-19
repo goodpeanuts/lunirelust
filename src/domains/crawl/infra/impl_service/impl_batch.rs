@@ -96,6 +96,11 @@ impl CrawlService {
                     tracing::error!("Task {task_id}: set_base_url failed: {e}");
                 }
             }
+            CrawlTaskInput::Idol(ref ii) => {
+                if let Err(e) = crawler.set_base_url(ii.base_url.clone()).await {
+                    tracing::error!("Task {task_id}: set_base_url failed: {e}");
+                }
+            }
         }
 
         match input {
@@ -134,6 +139,10 @@ impl CrawlService {
                     ui.update_images,
                 )
                 .await;
+            }
+            CrawlTaskInput::Idol(ii) => {
+                self.execute_idol_task(task_id, ii.idols, user_id, crawler, cancel_token)
+                    .await;
             }
         }
 

@@ -1,6 +1,7 @@
 mod impl_auto;
 mod impl_batch;
 mod impl_helpers;
+mod impl_idol;
 mod impl_update;
 
 #[cfg(test)]
@@ -16,8 +17,8 @@ use crate::common::config::Config;
 use crate::common::error::AppError;
 use crate::domains::crawl::domain::model::CrawlTaskInput;
 use crate::domains::crawl::domain::model::{
-    AutoTaskInput, BatchTaskInput, CrawlTask, CrawlTaskDetail, TaskStatus, TaskType, UpdateFilters,
-    UpdateTaskInput,
+    AutoTaskInput, BatchTaskInput, CrawlTask, CrawlTaskDetail, IdolTaskInput, TaskStatus, TaskType,
+    UpdateFilters, UpdateTaskInput,
 };
 use crate::domains::crawl::domain::repository::CrawlTaskRepository;
 use crate::domains::crawl::domain::service::CrawlServiceTrait;
@@ -245,6 +246,55 @@ impl CrawlServiceTrait for CrawlService {
             .create_task(
                 &self.db,
                 &TaskType::Update,
+                &TaskStatus::Queued,
+                user_id,
+                false,
+                false,
+                Some(&payload),
+                None,
+                total,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        let task_id = task.id;
+        let mut mgr = self.task_manager.lock().await;
+        let started = mgr.enqueue(task_id);
+        let status = if started {
+            TaskStatus::Running
+        } else {
+            TaskStatus::Queued
+        };
+
+        Ok((task_id, status))
+    }
+
+    async fn start_idol(
+        &self,
+        user_id: &str,
+        base_url: Option<String>,
+    ) -> Result<(i64, TaskStatus), AppError> {
+        let base_url = Self::resolve_base_url(base_url)?;
+
+        let idols = self.resolve_idols_without_images().await?;
+
+        if idols.is_empty() {
+            return Err(AppError::ValidationError(
+                "All idols already have images".to_owned(),
+            ));
+        }
+
+        let total = idols.len() as i32;
+        let input = CrawlTaskInput::Idol(IdolTaskInput { base_url, idols });
+        let payload = serde_json::to_string(&input).map_err(|e| {
+            AppError::InternalErrorWithMessage(format!("Failed to serialize input: {e}"))
+        })?;
+
+        let task = self
+            .repo
+            .create_task(
+                &self.db,
+                &TaskType::Idol,
                 &TaskStatus::Queued,
                 user_id,
                 false,

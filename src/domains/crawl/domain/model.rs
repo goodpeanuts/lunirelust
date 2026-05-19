@@ -7,6 +7,7 @@ pub enum TaskType {
     Batch,
     Auto,
     Update,
+    Idol,
 }
 
 impl TaskType {
@@ -15,6 +16,7 @@ impl TaskType {
             Self::Batch => "batch",
             Self::Auto => "auto",
             Self::Update => "update",
+            Self::Idol => "idol",
         }
     }
 
@@ -23,6 +25,7 @@ impl TaskType {
             "batch" => Some(Self::Batch),
             "auto" => Some(Self::Auto),
             "update" => Some(Self::Update),
+            "idol" => Some(Self::Idol),
             _ => None,
         }
     }
@@ -174,6 +177,7 @@ pub enum CrawlTaskInput {
     Batch(BatchTaskInput),
     Auto(AutoTaskInput),
     Update(UpdateTaskInput),
+    Idol(IdolTaskInput),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +211,19 @@ pub struct UpdateFilters {
     pub liked_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_after: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdolCrawlTarget {
+    pub id: i64,
+    pub name: String,
+    pub link: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdolTaskInput {
+    pub base_url: String,
+    pub idols: Vec<IdolCrawlTarget>,
 }
 
 #[derive(Debug, Clone)]
