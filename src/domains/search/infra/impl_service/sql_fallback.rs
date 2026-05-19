@@ -579,7 +579,9 @@ mod tests {
 
     fn load_test_env() {
         TEST_ENV_INIT.call_once(|| {
-            dotenvy::from_filename(".env.test").expect("Failed to load .env.test");
+            if let Err(e) = dotenvy::from_filename(".env.test") {
+                tracing::debug!("No .env.test found ({e}), using environment variables");
+            }
         });
     }
 

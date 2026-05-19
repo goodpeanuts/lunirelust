@@ -17,7 +17,7 @@ jobs:
           POSTGRES_PASSWORD: pass
           POSTGRES_DB: testdb
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U testuser -d testdb"
           --health-interval 10s
@@ -37,7 +37,7 @@ jobs:
       # Wait for postgres to be ready
       - name: Wait for PostgreSQL
         run: |
-          until pg_isready -h localhost -p 5432 -U testuser; do
+          until pg_isready -h localhost -p 5433 -U testuser; do
             echo "Waiting for PostgreSQL to be ready..."
             sleep 2
           done
@@ -58,13 +58,20 @@ jobs:
           echo "Final migration status:"
           cargo run -p migration -- status
         env:
-          DATABASE_URL: "postgres://testuser:pass@localhost:5432/testdb"
+          DATABASE_URL: "postgres://testuser:pass@localhost:5433/testdb"
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features
+        run: |
+          cargo nextest run --all-features
+          cargo test --quiet --workspace --doc
         env:
           APP_ENV: test
-          DATABASE_URL: "postgres://testuser:pass@localhost:5432/testdb"
+          DATABASE_URL: "postgres://testuser:pass@localhost:5433/testdb"
           DATABASE_MAX_CONNECTIONS: 5
           DATABASE_MIN_CONNECTIONS: 1
           SERVICE_HOST: 0.0.0.0
