@@ -6,6 +6,12 @@ use validator::Validate;
 
 use crate::domains::luna::domain::Link;
 
+// Keep deserialization aligned with the link-placeholder contract so omitted
+// names enter the system as the same sentinel used by update-mode backfill.
+fn default_link_name() -> String {
+    "None".to_owned()
+}
+
 // Link DTOs
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LinkDto {
@@ -33,20 +39,17 @@ impl From<Link> for LinkDto {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
 pub struct CreateLinkDto {
-    #[validate(length(
-        min = 1,
-        max = 255,
-        message = "Name must be between 1 and 255 characters"
-    ))]
+    #[serde(default = "default_link_name")]
+    #[validate(length(max = 255, message = "Name cannot exceed 255 characters"))]
     pub name: String,
     #[schema(value_type = String)]
     pub size: Option<Decimal>,
     #[serde(default, deserialize_with = "deserialize_option_date_or_none")]
     pub date: Option<Date>,
-    #[validate(length(min = 1, message = "Link cannot be empty"))]
-    pub link: Option<String>,
+    #[validate(length(min = 1, message = "Link URL is required"))]
+    pub link: String,
     pub star: Option<bool>,
 }
 
@@ -72,5 +75,41 @@ where
                 Err(_) => Ok(None),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CreateLinkDto;
+
+    #[test]
+    fn create_link_dto_defaults_missing_name_to_none_sentinel() {
+        // Manual link payloads may omit `name`; they should still deserialize
+        // into the canonical placeholder value instead of failing early.
+        let dto: CreateLinkDto = serde_json::from_str(
+            r#"{
+                "size": "1.5",
+                "date": "2025-08-11",
+                "link": "https://example.com/magnet",
+                "star": true
+            }"#,
+        )
+        .expect("CreateLinkDto should deserialize without name");
+
+        assert_eq!(dto.name, "None");
+    }
+
+    #[test]
+    fn create_link_dto_rejects_missing_link() {
+        // `link` is the stable identity for dedup/update logic, so requests
+        // without it must still fail at the DTO boundary.
+        let result = serde_json::from_str::<CreateLinkDto>(
+            r#"{
+                "name": "test",
+                "size": "1.5",
+                "date": "2025-08-11"
+            }"#,
+        );
+        assert!(result.is_err());
     }
 }

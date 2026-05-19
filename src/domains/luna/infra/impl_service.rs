@@ -8,7 +8,7 @@ use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
 mod director;
-mod file;
+pub mod file;
 mod genre;
 mod idol;
 mod label;

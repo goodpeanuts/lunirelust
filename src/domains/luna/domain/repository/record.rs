@@ -107,7 +107,6 @@ pub trait RecordRepository: Send + Sync {
     ) -> Result<PaginatedResponse<Record>, DbErr>;
 
     /// Finds records filtered by genre via JOIN on `record_genre` table.
-    #[expect(dead_code)]
     async fn find_by_genre_id(
         &self,
         db: &DatabaseConnection,
@@ -124,7 +123,6 @@ pub trait RecordRepository: Send + Sync {
     ) -> Result<PaginatedResponse<Record>, DbErr>;
 
     /// Finds records filtered by idol via JOIN on `idol_participation` table.
-    #[expect(dead_code)]
     async fn find_by_idol_id(
         &self,
         db: &DatabaseConnection,

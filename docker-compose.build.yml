@@ -32,7 +32,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.local
     container_name: ${COMPOSE_PROJECT_NAME}-app
     depends_on:
       postgres:

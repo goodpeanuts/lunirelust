@@ -10,6 +10,24 @@ A clean architecture web application built with Axum and SeaORM.
 - File upload functionality
 - JWT authentication
 - RESTful API with Swagger documentation
+- Web crawling with Playwright browser automation
+
+## Prerequisites
+
+### Node.js >= 18
+
+Required by the integrated luneth crawler for Playwright-based browser automation. The bridge JS files are embedded in the binary and deployed at runtime.
+
+```bash
+node --version  # v18+
+```
+
+On Debian/Ubuntu:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
 
 ## Dev prepare
 

@@ -3,6 +3,8 @@
 
 use std::sync::Once;
 
+use tokio::sync::OnceCell;
+
 use axum::{
     body::Body,
     http::{
@@ -38,10 +40,13 @@ pub const TEST_CLIENT_SECRET: &str = "test_password";
 
 pub const TEST_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
 
-/// Helper function to load environment variables from .env.test file
+/// Helper function to load environment variables from .env.test file.
+/// Falls back to already-set env vars (e.g. CI workflow) when .env.test is absent.
 fn load_test_env() {
     INIT.call_once(|| {
-        from_filename(".env.test").expect("Failed to load .env.test");
+        if let Err(e) = from_filename(".env.test") {
+            tracing::debug!("No .env.test found ({e}), using environment variables");
+        }
 
         // uncomment below for test debugging
         // use lunirelust::common::bootstrap::setup_tracing;
@@ -63,6 +68,14 @@ pub async fn create_test_router() -> Router {
     let config = Config::from_env().expect("Failed to load config");
     let state = build_app_state(&pool, config);
     create_router(state)
+}
+
+static TEST_ROUTER: OnceCell<Router> = OnceCell::const_new();
+
+/// Returns a shared test router. Creates it once, reuses for all tests.
+/// Avoids creating a new connection pool + crawl-runner thread per test.
+async fn get_test_router() -> &'static Router {
+    TEST_ROUTER.get_or_init(|| create_test_router()).await
 }
 
 /// Helper function gets the authentication token
@@ -126,7 +139,7 @@ pub async fn deserialize_json_body<T: serde::de::DeserializeOwned>(
 /// Helper functions to create a request
 pub async fn request(method: Method, uri: &str) -> Response<Body> {
     let request = get_request(method, uri);
-    let app = create_test_router().await;
+    let app = get_test_router().await.clone();
 
     app.oneshot(request.await).await.unwrap()
 }
@@ -139,7 +152,7 @@ pub async fn request_with_body<T: serde::Serialize>(
 ) -> Response<Body> {
     let json_payload = serde_json::to_string(payload).expect("Failed to serialize payload");
     let request = get_request_with_body(method, uri, &json_payload);
-    let app = create_test_router().await;
+    let app = get_test_router().await.clone();
 
     app.oneshot(request.await).await.unwrap()
 }
@@ -148,7 +161,7 @@ pub async fn request_with_body<T: serde::Serialize>(
 pub async fn request_with_auth(method: Method, uri: &str) -> Response<Body> {
     let token = get_authentication_token().await;
     let request = get_request_with_auth(method, uri, &token);
-    let app = create_test_router().await;
+    let app = get_test_router().await.clone();
 
     app.oneshot(request.await).await.unwrap()
 }
@@ -162,7 +175,7 @@ pub async fn request_with_auth_and_body<T: serde::Serialize>(
     let json_payload = serde_json::to_string(payload).expect("Failed to serialize payload");
     let token = get_authentication_token().await;
     let request = get_request_with_auth_and_body(method, uri, &token, &json_payload);
-    let app = create_test_router().await;
+    let app = get_test_router().await.clone();
 
     app.oneshot(request.await).await.unwrap()
 }
@@ -175,7 +188,7 @@ pub async fn request_with_auth_and_multipart(
 ) -> Response<Body> {
     let token = get_authentication_token().await;
     let request = get_request_with_auth_and_multipart(method, uri, &token, payload);
-    let app = create_test_router().await;
+    let app = get_test_router().await.clone();
 
     app.oneshot(request.await).await.unwrap()
 }

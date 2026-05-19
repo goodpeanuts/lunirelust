@@ -31,6 +31,9 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Forbidden Request")]
     Forbidden,
 
@@ -77,6 +80,7 @@ impl IntoResponse for AppError {
             | Self::TokenCreation => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotFound(_) | Self::UserNotFound => StatusCode::NOT_FOUND,
             Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::WrongCredentials | Self::InvalidToken => StatusCode::UNAUTHORIZED,
         };
 

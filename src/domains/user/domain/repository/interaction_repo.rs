@@ -26,6 +26,16 @@ pub trait InteractionRepository: Send + Sync {
         record_id: &str,
     ) -> Result<(), DbErr>;
 
+    /// Idempotent mark a record as liked by the user.
+    /// If already liked, preserves the original `liked_at` timestamp.
+    /// Other columns (viewed, `viewed_at`) are never modified.
+    async fn mark_liked(
+        &self,
+        db: &DatabaseConnection,
+        user_id: &str,
+        record_id: &str,
+    ) -> Result<(), DbErr>;
+
     /// Batch-fetch interaction status for multiple records.
     /// Returns a map of `record_id` -> `InteractionStatus`.
     async fn batch_get_status(

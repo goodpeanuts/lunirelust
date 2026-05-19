@@ -185,4 +185,54 @@ impl InteractionRepository for InteractionRepo {
         let ids = interactions.into_iter().map(|i| i.record_id).collect();
         Ok((ids, total))
     }
+
+    /// Idempotently mark a user/record pair as liked.
+    /// Preserves the original `liked_at` when already liked.
+    /// Does not modify `viewed/viewed_at` columns.
+    async fn mark_liked(
+        &self,
+        db: &DatabaseConnection,
+        user_id: &str,
+        record_id: &str,
+    ) -> Result<(), DbErr> {
+        let now = Utc::now();
+
+        let active = user_record_interaction::ActiveModel {
+            user_id: Set(user_id.to_owned()),
+            record_id: Set(record_id.to_owned()),
+            liked: Set(true),
+            liked_at: Set(Some(now)),
+            viewed: Set(false),
+            viewed_at: Set(None),
+            ..Default::default()
+        };
+
+        // On conflict: set liked=TRUE, but preserve the original liked_at when already liked.
+        let liked_at_col = Expr::col((
+            Alias::new("user_record_interaction"),
+            user_record_interaction::Column::LikedAt,
+        ));
+        let liked_is_true = Expr::col((
+            Alias::new("user_record_interaction"),
+            user_record_interaction::Column::Liked,
+        ))
+        .eq(true);
+        let on_conflict = OnConflict::columns([
+            user_record_interaction::Column::UserId,
+            user_record_interaction::Column::RecordId,
+        ])
+        .value(user_record_interaction::Column::Liked, Expr::value(true))
+        .value(
+            user_record_interaction::Column::LikedAt,
+            Expr::case(liked_is_true, liked_at_col).finally(Expr::value(Some(now))),
+        )
+        .to_owned();
+
+        user_record_interaction::Entity::insert(active)
+            .on_conflict(on_conflict)
+            .exec(db)
+            .await?;
+
+        Ok(())
+    }
 }

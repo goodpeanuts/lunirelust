@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use crate::domains::{
-    auth::AuthServiceTrait, device::DeviceServiceTrait, file::FileServiceTrait,
-    luna::LunaServiceTrait, search::SearchServiceTrait, user::UserServiceTrait,
+    auth::AuthServiceTrait, crawl::CrawlServiceTrait, device::DeviceServiceTrait,
+    file::FileServiceTrait, luna::LunaServiceTrait, search::SearchServiceTrait,
+    user::UserServiceTrait,
 };
 
 use super::config::Config;
@@ -25,10 +26,13 @@ pub struct AppState {
     pub luna_service: Arc<dyn LunaServiceTrait>,
     /// Service handling search-related logic.
     pub search_service: Arc<dyn SearchServiceTrait>,
+    /// Service handling crawl-related logic.
+    pub crawl_service: Arc<dyn CrawlServiceTrait>,
 }
 
 impl AppState {
     /// Creates a new instance of `AppState` with the provided dependencies.
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         config: Config,
         auth_service: Arc<dyn AuthServiceTrait>,
@@ -37,6 +41,7 @@ impl AppState {
         file_service: Arc<dyn FileServiceTrait>,
         luna_service: Arc<dyn LunaServiceTrait>,
         search_service: Arc<dyn SearchServiceTrait>,
+        crawl_service: Arc<dyn CrawlServiceTrait>,
     ) -> Self {
         Self {
             config,
@@ -46,6 +51,7 @@ impl AppState {
             file_service,
             luna_service,
             search_service,
+            crawl_service,
         }
     }
 }
