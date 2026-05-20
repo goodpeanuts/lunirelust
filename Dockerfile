@@ -3,7 +3,13 @@ FROM rust:1.92-slim AS builder
 WORKDIR /app
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y libssl-dev pkg-config curl
+RUN apt-get update && apt-get install -y libssl-dev pkg-config curl git
+
+# Configure git credentials for private dependencies
+ARG GIT_CREDENTIALS
+RUN if [ -n "$GIT_CREDENTIALS" ]; then \
+      git config --global url."https://x-access-token:${GIT_CREDENTIALS}@github.com/".insteadOf "https://github.com/"; \
+    fi
 
 # Copy sources
 COPY . .

@@ -200,6 +200,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
+            --build-arg GIT_CREDENTIALS=${{ secrets.GIT_CREDENTIALS }} \
             --build-arg TARGET=x86_64-unknown-linux-gnu \
             -t ghcr.io/${{ github.repository }}/lunirelust:latest \
             -t ghcr.io/${{ github.repository }}/lunirelust:${{ github.ref_name }} .
