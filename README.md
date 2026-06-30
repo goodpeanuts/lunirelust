@@ -31,6 +31,15 @@ sudo apt-get install -y nodejs
 
 ## Dev prepare
 
+### Clone Submodules
+
+Clone the content in submodules:
+
+```bash
+git submodule init
+git submodule update
+```
+
 ### Install tools
 
 #### Cargo deny

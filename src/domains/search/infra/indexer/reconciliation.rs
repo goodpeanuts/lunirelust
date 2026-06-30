@@ -246,11 +246,6 @@ pub(super) async fn backfill_missing_vectors(
     const MAX_BACKFILL_ITERATIONS: usize = 200; // ~10K docs per recovery
 
     loop {
-        iterations += 1;
-        if iterations > MAX_BACKFILL_ITERATIONS {
-            tracing::info!("Backfill iteration limit reached, remaining docs will be picked up by reconciliation");
-            break;
-        }
         let (docs, raw_page_size) = match search_repo
             .find_records_missing_vectors(offset, batch_size)
             .await
@@ -274,8 +269,18 @@ pub(super) async fn backfill_missing_vectors(
 
         if docs.is_empty() {
             // No missing-vector docs on this page, but there may be more
-            // pages. Continue scanning.
+            // pages. Continue scanning without consuming the iteration
+            // budget so already-vectorized regions are skipped quickly.
             continue;
+        }
+
+        // Count only pages that trigger embedding work, so the iteration
+        // budget is spent on genuinely missing-vector documents rather than
+        // already-vectorized pages that must be scanned past.
+        iterations += 1;
+        if iterations > MAX_BACKFILL_ITERATIONS {
+            tracing::info!("Backfill iteration limit reached, remaining docs will be picked up by reconciliation");
+            break;
         }
 
         tracing::info!(
