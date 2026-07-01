@@ -22,6 +22,7 @@ impl CrawlService {
         max_pages: u32,
         mark_liked: bool,
         mark_viewed: bool,
+        append_page_path: bool,
         user_id: String,
         crawler: &dyn CrawlerTrait,
         cancel_token: CancellationToken,
@@ -47,7 +48,14 @@ impl CrawlService {
                 break;
             }
 
-            let page_url = format!("{start_url}/page/{page_num}");
+            // When append_page_path is true (default), build `{start_url}/page/{n}`;
+            // when false, append only the page number as `/{n}` for sites whose
+            // pagination does not use a `page` sub-path segment.
+            let page_url = if append_page_path {
+                format!("{start_url}/page/{page_num}")
+            } else {
+                format!("{start_url}/{page_num}")
+            };
 
             {
                 let mgr = self.task_manager.lock().await;

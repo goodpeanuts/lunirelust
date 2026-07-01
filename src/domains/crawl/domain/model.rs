@@ -171,6 +171,10 @@ pub struct CrawlPageResult {
 
 // Serializable input payloads for restart recovery
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CrawlTaskInput {
@@ -195,6 +199,8 @@ pub struct AutoTaskInput {
     pub base_url: String,
     pub mark_liked: bool,
     pub mark_viewed: bool,
+    #[serde(default = "default_true")]
+    pub append_page_path: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

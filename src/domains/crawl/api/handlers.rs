@@ -92,6 +92,7 @@ pub async fn start_auto(
             req.max_pages,
             req.mark_liked,
             req.mark_viewed,
+            req.append_page_path,
             req.base_url,
         )
         .await?;
