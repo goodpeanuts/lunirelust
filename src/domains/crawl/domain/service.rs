@@ -52,6 +52,7 @@ pub trait CrawlServiceTrait: Send + Sync {
         base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError>;
 
+    #[expect(clippy::too_many_arguments)]
     async fn start_auto(
         &self,
         user_id: &str,
@@ -59,6 +60,7 @@ pub trait CrawlServiceTrait: Send + Sync {
         max_pages: u32,
         mark_liked: bool,
         mark_viewed: bool,
+        append_page_path: bool,
         base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError>;
 

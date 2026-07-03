@@ -123,6 +123,7 @@ impl CrawlService {
                     ai.max_pages,
                     ai.mark_liked,
                     ai.mark_viewed,
+                    ai.append_page_path,
                     user_id,
                     crawler,
                     cancel_token,

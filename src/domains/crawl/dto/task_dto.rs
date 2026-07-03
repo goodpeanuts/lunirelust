@@ -9,6 +9,10 @@ fn default_false() -> bool {
     false
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct StartBatchRequest {
@@ -33,6 +37,8 @@ pub struct StartAutoRequest {
     pub mark_liked: bool,
     #[serde(default = "default_false")]
     pub mark_viewed: bool,
+    #[serde(default = "default_true")]
+    pub append_page_path: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -306,6 +312,7 @@ mod tests {
             base_url: None,
             mark_liked: false,
             mark_viewed: false,
+            append_page_path: true,
         };
         assert!(req.validate().is_err());
     }
@@ -318,6 +325,7 @@ mod tests {
             base_url: None,
             mark_liked: true,
             mark_viewed: true,
+            append_page_path: true,
         };
         assert!(req.validate().is_ok());
     }

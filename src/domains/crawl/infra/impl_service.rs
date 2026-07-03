@@ -160,6 +160,7 @@ impl CrawlServiceTrait for CrawlService {
         max_pages: u32,
         mark_liked: bool,
         mark_viewed: bool,
+        append_page_path: bool,
         base_url: Option<String>,
     ) -> Result<(i64, TaskStatus), AppError> {
         let base_url = Self::resolve_base_url(base_url)?;
@@ -170,6 +171,7 @@ impl CrawlServiceTrait for CrawlService {
             base_url,
             mark_liked,
             mark_viewed,
+            append_page_path,
         });
         let payload = serde_json::to_string(&input).map_err(|e| {
             AppError::InternalErrorWithMessage(format!("Failed to serialize input: {e}"))

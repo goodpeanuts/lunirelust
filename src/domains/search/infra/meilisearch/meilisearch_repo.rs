@@ -130,11 +130,17 @@ impl MeiliSearchRepo {
         let mut normalized_count = 0usize;
 
         loop {
+            // `_vectors` is protected (MeiliSearch >= v1.11): require
+            // `retrieveVectors: true` so `document_missing_default_vector` can
+            // tell which documents already have vectors and must NOT be
+            // rewritten with `{"default": null}` (which would strip existing
+            // embeddings during embedder normalization).
             let response = self
                 .documents_fetch(json!({
                     "offset": offset,
                     "limit": BATCH_SIZE,
-                    "fields": DOCUMENT_FETCH_FIELDS
+                    "fields": DOCUMENT_FETCH_FIELDS,
+                    "retrieveVectors": true
                 }))
                 .await?;
 
@@ -274,15 +280,23 @@ fn extract_fetch_results_len(response: &JsonValue) -> usize {
 }
 
 fn document_missing_default_vector(doc: &JsonValue) -> bool {
-    let Some(vectors) = doc.get("_vectors") else {
+    let Some(default) = doc.get("_vectors").and_then(|v| v.get("default")) else {
         return true;
     };
 
-    if vectors.is_null() {
+    if default.is_null() {
         return true;
     }
 
-    vectors.get("default").is_none_or(JsonValue::is_null)
+    // MeiliSearch >= v1.11 stores vectors as
+    // `_vectors.default = {"embeddings": [[...]], "regenerate": bool}`. A
+    // document is missing its embedding when that array is absent or empty.
+    if let Some(embeddings) = default.get("embeddings") {
+        return embeddings.as_array().is_none_or(Vec::is_empty);
+    }
+
+    // Legacy format (pre-v1.11): `_vectors.default` is the vector array itself.
+    default.as_array().is_none_or(Vec::is_empty)
 }
 
 #[async_trait]
@@ -489,12 +503,17 @@ impl SearchRepository for MeiliSearchRepo {
         offset: usize,
         limit: usize,
     ) -> Result<(Vec<SearchDocument>, usize), Box<dyn std::error::Error + Send + Sync>> {
+        // `_vectors` is a protected field: MeiliSearch (>= v1.11) omits it from
+        // `/documents/fetch` responses unless `retrieveVectors: true` is set, even
+        // when it is listed in `fields`. Without this flag every document is
+        // falsely judged missing its vector and gets re-embedded each cycle.
         let json = self
             .documents_fetch(json!({
             "filter": "entity_type = \"record\"",
             "offset": offset,
             "limit": limit,
-            "fields": DOCUMENT_FETCH_FIELDS
+            "fields": DOCUMENT_FETCH_FIELDS,
+            "retrieveVectors": true
             }))
             .await
             .map_err(|error| {
@@ -668,6 +687,38 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_vector_detection_absent_vectors_is_missing() {
+        let doc = json!({ "id": "record__1" });
+        assert!(document_missing_default_vector(&doc));
+    }
+
+    #[test]
+    fn test_missing_vector_detection_v1_11_empty_embeddings_is_missing() {
+        // MeiliSearch >= v1.11 stores an opted-out document as
+        // `{"embeddings": [], "regenerate": false}`; this MUST read as missing.
+        let doc = json!({
+            "id": "record__1",
+            "_vectors": {
+                "default": { "embeddings": [], "regenerate": false }
+            }
+        });
+
+        assert!(document_missing_default_vector(&doc));
+    }
+
+    #[test]
+    fn test_missing_vector_detection_v1_11_nonempty_embeddings_is_present() {
+        let doc = json!({
+            "id": "record__1",
+            "_vectors": {
+                "default": { "embeddings": [[0.1, 0.2, 0.3]], "regenerate": false }
+            }
+        });
+
+        assert!(!document_missing_default_vector(&doc));
+    }
+
+    #[test]
     fn test_build_filter_empty() {
         let filter = build_filter_string(&[], "");
         assert!(filter.is_empty());
@@ -703,6 +754,133 @@ mod tests {
         assert_eq!(
             filter,
             "(entity_type = \"record\" OR entity_type = \"idol\") AND date >= \"2024-01-01\""
+        );
+    }
+
+    // --- MeiliSearch integration tests ---
+    //
+    // These require a live MeiliSearch instance (started by `just test-db`,
+    // mapped to MEILI_URL in .env.test). They auto-skip when the service is
+    // unreachable so bare `cargo nextest run` without the compose stack does
+    // not fail. Each test uses an isolated index name to avoid interference.
+
+    /// Embedder dimension configured by `index_setup` (BGE-M3).
+    const TEST_EMBEDDING_DIM: usize = 1024;
+
+    /// Build a repo against an isolated test index, wiping any leftover index
+    /// first and configuring it via `init_index` so `_vectors` is meaningful.
+    /// Returns `None` (skip) when `MeiliSearch` is not reachable.
+    async fn integration_repo(index_name: &str) -> Option<MeiliSearchRepo> {
+        let url = std::env::var("MEILI_URL").unwrap_or_else(|_| "http://localhost:7701".to_owned());
+        let key = std::env::var("MEILI_MASTER_KEY")
+            .unwrap_or_else(|_| "meili_master_key_test".to_owned());
+        let client = MeiliSearchClient::new(&url, &key, index_name);
+        if !client.health_check().await {
+            tracing::info!("skipping MeiliSearch integration test: service unavailable");
+            return None;
+        }
+        let repo = MeiliSearchRepo::new(client);
+        // Wipe any leftover index from a prior run so the test starts clean.
+        if let Ok(task) = repo.client.client.delete_index(index_name).await {
+            if let Err(e) = repo
+                .wait_for_task_with_debug(task.get_task_uid(), "test_delete_index")
+                .await
+            {
+                tracing::debug!("test index cleanup wait failed: {e}");
+            }
+        }
+        repo.init_index()
+            .await
+            .expect("init_index must configure the embedder");
+        Some(repo)
+    }
+
+    /// Build a minimal record document, optionally carrying a default-embedder
+    /// vector of zeros.
+    fn record_doc(id: &str, vectors: Option<JsonValue>) -> SearchDocument {
+        SearchDocument {
+            doc_id: format!("record__{id}"),
+            title: format!("title-{id}"),
+            entity_type: SearchEntityType::Record,
+            entity_id: id.to_owned(),
+            entity_version: 1,
+            permission: 0,
+            date: None,
+            duration: None,
+            director_name: None,
+            studio_name: None,
+            label_name: None,
+            series_name: None,
+            genre_names: None,
+            idol_names: None,
+            vectors,
+        }
+    }
+
+    #[tokio::test]
+    async fn integration_find_records_missing_vectors_only_returns_vector_less() {
+        let Some(repo) = integration_repo("luna_search_test_rv_find").await else {
+            return;
+        };
+        let with_vector = record_doc(
+            "with-vec",
+            Some(json!({ "default": vec![0.0_f64; TEST_EMBEDDING_DIM] })),
+        );
+        let without_vector = record_doc("no-vec", None);
+
+        repo.batch_upsert(&[with_vector, without_vector])
+            .await
+            .expect("upsert test docs");
+
+        let (missing, _raw_page_size) = repo
+            .find_records_missing_vectors(0, 50)
+            .await
+            .expect("find_records_missing_vectors");
+
+        let missing_ids: Vec<&str> = missing.iter().map(|d| d.doc_id.as_str()).collect();
+        assert!(
+            missing_ids.contains(&"record__no-vec"),
+            "record without a vector must be reported missing: {missing_ids:?}"
+        );
+        assert!(
+            !missing_ids.contains(&"record__with-vec"),
+            "record with a vector must NOT be reported missing: {missing_ids:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn integration_normalize_does_not_strip_existing_vectors() {
+        let Some(repo) = integration_repo("luna_search_test_rv_norm").await else {
+            return;
+        };
+        let with_vector = record_doc(
+            "keep-vec",
+            Some(json!({ "default": vec![0.0_f64; TEST_EMBEDDING_DIM] })),
+        );
+        repo.batch_upsert(&[with_vector])
+            .await
+            .expect("upsert test doc");
+
+        // The normalization pass must leave documents that already have a
+        // vector untouched (i.e. rewrite zero documents).
+        let normalized = repo
+            .normalize_documents_for_user_provided_embedder()
+            .await
+            .expect("normalize");
+        assert_eq!(
+            normalized, 0,
+            "a document that already has a vector must not be rewritten"
+        );
+
+        // Confirm the vector survived: the document must not be reported missing.
+        let (missing, _) = repo
+            .find_records_missing_vectors(0, 50)
+            .await
+            .expect("find_records_missing_vectors");
+        let still_missing: Vec<&str> = missing.iter().map(|d| d.doc_id.as_str()).collect();
+        assert!(
+            !still_missing.contains(&"record__keep-vec"),
+            "normalize must not strip an existing vector: {still_missing:?}"
         );
     }
 }

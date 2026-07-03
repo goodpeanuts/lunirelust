@@ -57,11 +57,11 @@ case $COMMAND in
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             echo "Stopping database..."
-            docker-compose down postgres
-            echo "Removing database data..."
-            sudo rm -rf db/
+            docker compose --env-file .env rm -sf postgres
+            echo "Removing database data ($POSTGRES_DATA_DIR)..."
+            rm -rf "$POSTGRES_DATA_DIR"
             echo "Starting fresh database..."
-            docker-compose up postgres -d
+            docker compose --env-file .env up -d postgres
             echo "Waiting for database to be ready..."
             sleep 5
             echo "Running migrations..."
@@ -77,13 +77,13 @@ case $COMMAND in
             psql "$DATABASE_URL" -c "SELECT version();"
         else
             echo "psql not found. Testing via Docker..."
-            docker exec -it clean_axum_app_postgres psql -U testuser -d testdb -c "SELECT version();"
+            docker compose --env-file .env exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version();"
         fi
         ;;
     backup)
         BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).sql"
         echo "Creating backup: $BACKUP_FILE"
-        docker exec -t clean_axum_app_postgres pg_dump -U testuser testdb > "$BACKUP_FILE"
+        docker compose --env-file .env exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_FILE"
         echo "Backup created: $BACKUP_FILE"
         ;;
     *)
