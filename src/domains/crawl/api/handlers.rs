@@ -16,11 +16,17 @@ use crate::common::app_state::AppState;
 use crate::common::dto::RestApiResponse;
 use crate::common::error::AppError;
 use crate::common::jwt::Claims;
-use crate::domains::crawl::domain::model::{PageResultStatus, TaskStatus, TaskType};
+use crate::domains::crawl::domain::model::CrawlTask;
+use crate::domains::crawl::domain::model::{
+    CrawlPageResult, CrawlTaskInput, EntityAutoCrawlScope, EntityAutoCrawlType, PageResultStatus,
+    TaskStatus, TaskType,
+};
 use crate::domains::crawl::dto::task_dto::{
-    CodeResultResponse, CrawlerStatusResponse, ListTasksQuery, PageResultResponse, SseEvent,
-    StartAutoRequest, StartBatchRequest, StartIdolRequest, StartUpdateRequest, TaskDetailResponse,
-    TaskListItem, TaskListResponse, TaskResponse, TaskSummary,
+    CodeResultResponse, CrawlerStatusResponse, EntityAutoCrawlDetail, EntityAutoCrawlTaskResponse,
+    EntityProgressListResponse, EntityProgressQuery, EntityProgressSummary,
+    EntityProgressSummaryQuery, ListTasksQuery, PageResultResponse, SseEvent, StartAutoRequest,
+    StartBatchRequest, StartEntityAutoCrawlRequest, StartIdolRequest, StartUpdateRequest,
+    TaskDetailResponse, TaskListItem, TaskListResponse, TaskResponse, TaskSummary,
 };
 use validator::Validate as _;
 
@@ -180,6 +186,114 @@ pub async fn start_idol(
 
 #[utoipa::path(
     post,
+    path = "/crawl/entity-auto-crawl",
+    request_body = StartEntityAutoCrawlRequest,
+    responses(
+        (status = 202, description = "Entity auto crawl tasks created", body = EntityAutoCrawlTaskResponse),
+        (status = 422, description = "Validation error (invalid entity_type, scope, or count)"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
+pub async fn start_entity_auto_crawl(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::Json(req): axum::Json<StartEntityAutoCrawlRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    req.validate()
+        .map_err(|e| AppError::UnprocessableEntity(e.to_string()))?;
+
+    let entity_type = EntityAutoCrawlType::from_str(&req.entity_type).ok_or_else(|| {
+        AppError::UnprocessableEntity(format!("invalid entity_type: {}", req.entity_type))
+    })?;
+    let scope = EntityAutoCrawlScope::from_str(&req.scope)
+        .ok_or_else(|| AppError::UnprocessableEntity(format!("invalid scope: {}", req.scope)))?;
+
+    let resp = state
+        .crawl_service
+        .start_entity_auto_crawl(&claims.sub, entity_type, req.count, scope, req.base_url)
+        .await?;
+
+    Ok((
+        axum::http::StatusCode::ACCEPTED,
+        RestApiResponse::success(resp),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/crawl/entity-progress",
+    params(
+        ("entity_type" = String, Query, description = "Entity kind: idol/director/label/series/studio/genre"),
+        ("status" = Option<String>, Query, description = "Filter by derived status: never/in_progress/completed/failed"),
+        ("page" = Option<u64>, Query, description = "Page number (default 1)"),
+        ("page_size" = Option<u64>, Query, description = "Page size (default 20)"),
+    ),
+    responses(
+        (status = 200, description = "Paginated entity progress", body = EntityProgressListResponse),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
+pub async fn list_entity_progress(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Query(query): Query<EntityProgressQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let page = query.page.unwrap_or(1);
+    if page == 0 {
+        return Err(AppError::ValidationError("page must be >= 1".to_owned()));
+    }
+    let page_size = query.page_size.unwrap_or(20);
+
+    let entity_type = EntityAutoCrawlType::from_str(&query.entity_type).ok_or_else(|| {
+        AppError::ValidationError(format!("invalid entity_type: {}", query.entity_type))
+    })?;
+
+    let resp = state
+        .crawl_service
+        .list_entity_progress(entity_type, query.status, page, page_size)
+        .await?;
+
+    Ok(RestApiResponse::success(resp))
+}
+
+#[utoipa::path(
+    get,
+    path = "/crawl/entity-progress/summary",
+    params(
+        ("entity_type" = String, Query, description = "Entity kind: idol/director/label/series/studio/genre"),
+    ),
+    responses(
+        (status = 200, description = "Current-round coverage summary", body = EntityProgressSummary),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "Crawl"
+)]
+pub async fn get_entity_progress_summary(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Query(query): Query<EntityProgressSummaryQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let entity_type = EntityAutoCrawlType::from_str(&query.entity_type).ok_or_else(|| {
+        AppError::ValidationError(format!("invalid entity_type: {}", query.entity_type))
+    })?;
+
+    let resp = state
+        .crawl_service
+        .get_entity_progress_summary(entity_type)
+        .await?;
+
+    Ok(RestApiResponse::success(resp))
+}
+
+#[utoipa::path(
+    post,
     path = "/crawl/tasks/{id}/cancel",
     params(("id" = i64, Path, description = "Task ID")),
     responses(
@@ -293,6 +407,11 @@ pub async fn get_task_detail(
 
     match detail {
         Some(d) => {
+            // entity_auto is derived (not stored): parse the persisted payload for
+            // the entity reference and aggregate the page results. Computed first,
+            // before d.task / d.page_results are moved into the response below.
+            let entity_auto = compute_entity_auto_detail(&d.task, &d.page_results);
+
             let task_item = TaskListItem {
                 id: d.task.id,
                 task_type: d.task.task_type.as_str().to_owned(),
@@ -335,10 +454,55 @@ pub async fn get_task_detail(
                 task: task_item,
                 code_results,
                 page_results,
+                entity_auto,
             }))
         }
         None => Err(AppError::NotFound("Task not found".to_owned())),
     }
+}
+
+/// Build the `entity_auto` detail block for a task (None for non-entity-auto
+/// tasks). Counts real non-404 source page errors: the first-404 end-of-listing
+/// page and restart-interrupted pages are excluded by message prefix.
+fn compute_entity_auto_detail(
+    task: &CrawlTask,
+    page_results: &[CrawlPageResult],
+) -> Option<EntityAutoCrawlDetail> {
+    if !matches!(task.task_type, TaskType::EntityAutoCrawl) {
+        return None;
+    }
+    let payload = task.input_payload.as_deref()?;
+    let input: CrawlTaskInput = serde_json::from_str(payload).ok()?;
+    let CrawlTaskInput::EntityAutoCrawl(ei) = input else {
+        return None;
+    };
+
+    let mut success_pages = 0i32;
+    let mut failed_page_numbers: Vec<i32> = Vec::new();
+    for p in page_results {
+        if p.status == PageResultStatus::Success && p.records_found > 0 {
+            success_pages += 1;
+        } else if p.status == PageResultStatus::Failed {
+            let excluded = p.error_message.as_deref().is_some_and(|m| {
+                m.starts_with("Page not found (404)")
+                    || m.starts_with("Page processing interrupted")
+            });
+            if !excluded {
+                failed_page_numbers.push(p.page_number);
+            }
+        }
+    }
+    failed_page_numbers.sort_unstable();
+    let failed_pages = failed_page_numbers.len() as i32;
+
+    Some(EntityAutoCrawlDetail {
+        entity_type: ei.entity_type.as_str().to_owned(),
+        entity_id: ei.entity_id,
+        entity_name: ei.entity_name,
+        success_pages,
+        failed_pages,
+        failed_page_numbers,
+    })
 }
 
 type BoxedSseStream = Pin<Box<dyn Stream<Item = Result<SseEventInner, Infallible>> + Send>>;
@@ -539,4 +703,180 @@ pub async fn crawler_health(
         initialized: status.initialized,
         idle: status.idle,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the entity-auto-crawl detail derivation and the prefix
+    //! contracts its `failed_page_numbers` exclusion depends on.
+
+    use chrono::Utc;
+
+    use crate::domains::crawl::domain::model::{
+        CrawlPageResult, CrawlTask, CrawlTaskInput, EntityAutoCrawlScope, EntityAutoCrawlTaskInput,
+        EntityAutoCrawlType, PageResultStatus, TaskStatus, TaskType,
+    };
+
+    use super::compute_entity_auto_detail;
+
+    fn task_of(task_type: TaskType, payload: Option<String>) -> CrawlTask {
+        CrawlTask {
+            id: 1,
+            task_type,
+            status: TaskStatus::Failed,
+            user_id: "u".to_owned(),
+            mark_liked: false,
+            mark_viewed: false,
+            input_payload: payload,
+            max_pages: None,
+            total_codes: 0,
+            success_count: 0,
+            fail_count: 0,
+            skip_count: 0,
+            error_message: None,
+            created_at: Utc::now(),
+            started_at: None,
+            completed_at: None,
+        }
+    }
+
+    fn page(
+        num: i32,
+        status: PageResultStatus,
+        records_found: i32,
+        err: Option<&str>,
+    ) -> CrawlPageResult {
+        CrawlPageResult {
+            id: num as i64,
+            task_id: 1,
+            page_number: num,
+            status,
+            records_found,
+            records_crawled: 0,
+            error_message: err.map(ToOwned::to_owned),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn entity_payload() -> String {
+        serde_json::to_string(&CrawlTaskInput::EntityAutoCrawl(EntityAutoCrawlTaskInput {
+            entity_type: EntityAutoCrawlType::Idol,
+            entity_id: 12,
+            entity_name: "n".to_owned(),
+            link: "l".to_owned(),
+            base_url: "b".to_owned(),
+            crawl_round: 0,
+            scope: EntityAutoCrawlScope::Uncrawled,
+        }))
+        .expect("serialize payload")
+    }
+
+    #[test]
+    fn detail_counts_exclude_first_404_interrupted_and_zero_record_success() {
+        let task = task_of(TaskType::EntityAutoCrawl, Some(entity_payload()));
+        let pages = vec![
+            page(1, PageResultStatus::Success, 3, None),
+            page(2, PageResultStatus::Success, 0, None),
+            page(
+                3,
+                PageResultStatus::Failed,
+                0,
+                Some("Failed to extract record piece from item element"),
+            ),
+            page(
+                4,
+                PageResultStatus::Failed,
+                0,
+                Some("Page not found (404): https://example.com/x"),
+            ),
+            page(
+                5,
+                PageResultStatus::Failed,
+                0,
+                Some("Page processing interrupted: server restarted"),
+            ),
+            page(6, PageResultStatus::Success, 2, None),
+        ];
+        let d = compute_entity_auto_detail(&task, &pages).expect("entity_auto for entity task");
+        // success_pages counts only pages with records > 0 (pages 1 and 6).
+        assert_eq!(d.success_pages, 2);
+        // Only page 3 is a real non-404 source error; the 404 end page (4) and
+        // the restart-interrupted page (5) are excluded.
+        assert_eq!(d.failed_pages, 1);
+        assert_eq!(d.failed_page_numbers, vec![3]);
+        assert_eq!(d.entity_type, "idol");
+        assert_eq!(d.entity_id, 12);
+    }
+
+    #[test]
+    fn detail_failed_page_numbers_are_sorted() {
+        let task = task_of(TaskType::EntityAutoCrawl, Some(entity_payload()));
+        // Non-404 errors out of page order -> must be sorted ascending.
+        let pages = vec![
+            page(5, PageResultStatus::Failed, 0, Some("err")),
+            page(2, PageResultStatus::Failed, 0, Some("err")),
+            page(
+                9,
+                PageResultStatus::Failed,
+                0,
+                Some("Page not found (404): x"),
+            ),
+            page(3, PageResultStatus::Success, 1, None),
+        ];
+        let d = compute_entity_auto_detail(&task, &pages).expect("entity_auto");
+        assert_eq!(d.failed_page_numbers, vec![2, 5]);
+    }
+
+    #[test]
+    fn detail_none_for_non_entity_auto_task() {
+        let task = task_of(TaskType::Auto, None);
+        let pages = vec![page(1, PageResultStatus::Success, 1, None)];
+        assert!(compute_entity_auto_detail(&task, &pages).is_none());
+    }
+
+    #[test]
+    fn detail_none_when_payload_missing_or_unreadable() {
+        let task_no_payload = task_of(TaskType::EntityAutoCrawl, None);
+        assert!(compute_entity_auto_detail(&task_no_payload, &[]).is_none());
+
+        let task_bad_payload =
+            task_of(TaskType::EntityAutoCrawl, Some("not valid json".to_owned()));
+        assert!(compute_entity_auto_detail(&task_bad_payload, &[]).is_none());
+    }
+
+    /// The `failed_page_numbers` exclusion relies on luneth's `PageNotFound`
+    /// Display starting with this exact prefix. Pin it so a luneth change does
+    /// not silently let the first-404 page into `failed_pages`.
+    #[test]
+    fn luneth_page_not_found_display_prefix_is_pinned() {
+        let msg = format!(
+            "{}",
+            luneth::crawl::CrawlError::PageNotFound {
+                url: "https://example.com/x".to_owned()
+            }
+        );
+        assert!(
+            msg.starts_with("Page not found (404)"),
+            "luneth PageNotFound Display prefix changed: {msg}"
+        );
+    }
+
+    /// The `failed_page_numbers` exclusion also relies on the restart-interrupted
+    /// page message starting with this prefix. The executor/reconcile both write
+    /// messages beginning with it; pin that they do.
+    #[test]
+    fn interrupted_page_message_prefixes_are_pinned() {
+        // reconcile_startup writes this for an interrupted in-progress page.
+        let reconcile_msg = "Page processing interrupted: server restarted";
+        assert!(
+            reconcile_msg.starts_with("Page processing interrupted"),
+            "reconcile interrupted-page prefix changed: {reconcile_msg}"
+        );
+        // The executor writes this on cancel mid-page.
+        let cancel_msg = "Page processing interrupted: task cancelled";
+        assert!(
+            cancel_msg.starts_with("Page processing interrupted"),
+            "executor interrupted-page prefix changed: {cancel_msg}"
+        );
+    }
 }

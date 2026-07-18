@@ -118,7 +118,8 @@ pub(crate) mod infra {
 // Re-export commonly used items for convenience
 pub use api::routes::{luna_routes, LunaApiDoc};
 pub use domain::{
-    CreatedNestedEntities, FileServiceTrait, LunaServiceTrait, RecordRepository, RecordServiceTrait,
+    CreatedNestedEntities, FileServiceTrait, LunaServiceTrait, Record, RecordRepository,
+    RecordServiceTrait,
 };
 pub use infra::impl_service::LunaService;
 pub use infra::search_outbox::outbox_entity_upsert;

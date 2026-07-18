@@ -23,7 +23,8 @@ pub(crate) mod infra {
 pub use infra::impl_repository::CrawlRepo;
 
 pub use api::routes::{crawl_routes, CrawlApiDoc};
-pub use domain::repository::CrawlTaskRepository;
+pub use domain::model::{EntityAutoCrawlScope, EntityAutoCrawlType};
+pub use domain::repository::{CrawlTaskRepository, EntityProgressRepository};
 pub use domain::service::{CrawlServiceTrait, CrawlerTrait};
 pub use infra::crawler::CrawlTaskManager;
 pub use infra::impl_service::CrawlService;

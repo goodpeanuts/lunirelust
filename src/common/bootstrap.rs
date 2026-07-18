@@ -21,6 +21,7 @@ use crate::{common::app_state::AppState, domains::user::UserService};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 /// Constructs and wires all application services and returns a configured `AppState`.
+#[expect(clippy::too_many_lines)]
 pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
     let file_service: Arc<dyn FileServiceTrait> =
         FileService::create_service(config.clone(), pool.clone());
@@ -39,6 +40,8 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
     let record_repo: Arc<dyn crate::domains::luna::RecordRepository + Send + Sync> =
         Arc::new(RecordRepo);
     let crawl_repo: Arc<dyn crate::domains::crawl::CrawlTaskRepository + Send + Sync> =
+        Arc::new(CrawlRepo);
+    let entity_repo: Arc<dyn crate::domains::crawl::EntityProgressRepository + Send + Sync> =
         Arc::new(CrawlRepo);
 
     let luna_file_service: Arc<dyn crate::domains::luna::FileServiceTrait + Send + Sync> =
@@ -62,6 +65,7 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
         pool.clone(),
         config.clone(),
         crawl_repo,
+        entity_repo,
         interaction_repo,
         record_repo,
         luna_file_service,

@@ -8,12 +8,17 @@ use sea_orm::DatabaseConnection;
 
 use crate::common::config::Config;
 use crate::common::error::AppError;
-use crate::domains::crawl::domain::model::{CrawlTask, CrawlTaskDetail, TaskStatus, TaskType};
+use crate::domains::crawl::domain::model::{
+    CrawlTask, CrawlTaskDetail, EntityAutoCrawlScope, EntityAutoCrawlType, TaskStatus, TaskType,
+};
+use crate::domains::crawl::dto::task_dto::{
+    EntityAutoCrawlTaskResponse, EntityProgressListResponse, EntityProgressSummary,
+};
 use crate::domains::crawl::infra::crawler::{CrawlTaskManager, CrawlerStatus};
 use crate::domains::luna::{FileServiceTrait as LunaFileServiceTrait, RecordRepository};
 use crate::domains::user::InteractionRepository;
 
-use super::repository::CrawlTaskRepository;
+use super::repository::{CrawlTaskRepository, EntityProgressRepository};
 
 /// Abstraction for crawl operations. Not required to be Send/Sync
 /// because it runs exclusively on the dedicated crawl runner thread.
@@ -30,11 +35,13 @@ pub trait CrawlerTrait {
 }
 
 #[async_trait]
+#[expect(clippy::too_many_arguments)]
 pub trait CrawlServiceTrait: Send + Sync {
     fn create_service(
         db: DatabaseConnection,
         config: Config,
         crawl_repo: Arc<dyn CrawlTaskRepository + Send + Sync>,
+        entity_repo: Arc<dyn EntityProgressRepository + Send + Sync>,
         interaction_repo: Arc<dyn InteractionRepository + Send + Sync>,
         record_repo: Arc<dyn RecordRepository + Send + Sync>,
         file_service: Arc<dyn LunaFileServiceTrait + Send + Sync>,
@@ -103,4 +110,33 @@ pub trait CrawlServiceTrait: Send + Sync {
     async fn crawler_status(&self) -> CrawlerStatus;
 
     async fn reconcile_startup(&self);
+
+    /// Create up to `count` entity-auto-crawl tasks for entities of the given
+    /// type and selection scope. Bumps the round for `uncrawled` claims;
+    /// `failed` claims are round-neutral. Returns the created tasks plus the
+    /// remaining uncrawled-scope candidates after this pick.
+    async fn start_entity_auto_crawl(
+        &self,
+        user_id: &str,
+        entity_type: EntityAutoCrawlType,
+        count: u32,
+        scope: EntityAutoCrawlScope,
+        base_url: Option<String>,
+    ) -> Result<EntityAutoCrawlTaskResponse, AppError>;
+
+    /// Paginated per-entity progress listing with an optional derived-status
+    /// filter (`never` / `in_progress` / `completed` / `failed`).
+    async fn list_entity_progress(
+        &self,
+        entity_type: EntityAutoCrawlType,
+        status: Option<String>,
+        page: u64,
+        page_size: u64,
+    ) -> Result<EntityProgressListResponse, AppError>;
+
+    /// Current-round coverage summary for an entity type.
+    async fn get_entity_progress_summary(
+        &self,
+        entity_type: EntityAutoCrawlType,
+    ) -> Result<EntityProgressSummary, AppError>;
 }

@@ -7,6 +7,24 @@ use crate::domains::crawl::dto::task_dto::{SseEvent, TaskSummary};
 
 use super::CrawlService;
 
+/// Extract the origin (`scheme://host[:port]/`) from an absolute URL, e.g.
+/// `https://www.example.com/star/xkf` -> `https://www.example.com/`. Returns
+/// `None` if the input is not a well-formed absolute `http(s)` URL. Used to
+/// derive the crawler `base_url` for entity-auto-crawl from the entity's listing
+/// link, so relative thumbnail paths resolve against the real site host.
+fn origin_of(link: &str) -> Option<String> {
+    let (scheme, rest) = link.split_once("://")?;
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    // Host (with optional port) is everything up to the first '/', '?' or '#'.
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .filter(|h| !h.is_empty())?;
+    Some(format!("{scheme}://{host}/"))
+}
+
 impl CrawlService {
     #[expect(
         clippy::let_underscore_must_use,
@@ -101,6 +119,20 @@ impl CrawlService {
                     tracing::error!("Task {task_id}: set_base_url failed: {e}");
                 }
             }
+            CrawlTaskInput::EntityAutoCrawl(ref ei) => {
+                // The thumbnail (display image) URL is a relative path on the
+                // entity's own site (e.g. "pics/thumb/xxx.jpg"), which luneth
+                // resolves against the crawler's base_url. The correct host is the
+                // one from the entity listing `link` (e.g. example.com), NOT the
+                // task's persisted base_url (which defaults to a placeholder when
+                // BASE_URL is unset and yields 404s for every thumbnail). Derive
+                // the base_url from the link's origin; fall back to the stored
+                // base_url only if the link cannot be parsed.
+                let base_url = origin_of(&ei.link).unwrap_or_else(|| ei.base_url.clone());
+                if let Err(e) = crawler.set_base_url(base_url).await {
+                    tracing::error!("Task {task_id}: set_base_url failed: {e}");
+                }
+            }
         }
 
         match input {
@@ -143,6 +175,10 @@ impl CrawlService {
             }
             CrawlTaskInput::Idol(ii) => {
                 self.execute_idol_task(task_id, ii.idols, user_id, crawler, cancel_token)
+                    .await;
+            }
+            CrawlTaskInput::EntityAutoCrawl(ei) => {
+                self.execute_entity_auto_crawl_task(task_id, ei, user_id, crawler, cancel_token)
                     .await;
             }
         }
@@ -420,5 +456,42 @@ impl CrawlService {
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_of;
+
+    #[test]
+    fn origin_of_extracts_scheme_and_host() {
+        assert_eq!(
+            origin_of("https://www.example.com/star/xkf"),
+            Some("https://www.example.com/".to_owned())
+        );
+        assert_eq!(
+            origin_of("https://www.example.com/star/xkf/3"),
+            Some("https://www.example.com/".to_owned())
+        );
+        assert_eq!(
+            origin_of("http://example.com"),
+            Some("http://example.com/".to_owned())
+        );
+    }
+
+    #[test]
+    fn origin_of_keeps_port_and_ignores_query_fragment() {
+        assert_eq!(
+            origin_of("https://host:8443/path?a=1#frag"),
+            Some("https://host:8443/".to_owned())
+        );
+    }
+
+    #[test]
+    fn origin_of_rejects_non_http_or_malformed() {
+        assert_eq!(origin_of("ftp://host/x"), None);
+        assert_eq!(origin_of("not-a-url"), None);
+        assert_eq!(origin_of("https://"), None);
+        assert_eq!(origin_of(""), None);
     }
 }

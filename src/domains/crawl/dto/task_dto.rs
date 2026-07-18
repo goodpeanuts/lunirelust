@@ -13,6 +13,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_uncrawled() -> String {
+    "uncrawled".to_owned()
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct StartBatchRequest {
@@ -57,6 +61,23 @@ pub struct StartUpdateRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StartIdolRequest {
+    pub base_url: Option<String>,
+}
+
+/// Request body for `POST /crawl/entity-auto-crawl`.
+///
+/// `entity_type` and `scope` are carried as strings and validated against their
+/// enums in the service layer (so the validation error surface stays uniform).
+/// `count` is range-checked here. `mark_liked` / `mark_viewed` are not accepted:
+/// they are always `false` for this task type.
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct StartEntityAutoCrawlRequest {
+    pub entity_type: String,
+    #[validate(range(min = 1, max = 100, message = "count must be between 1 and 100"))]
+    pub count: u32,
+    #[serde(default = "default_uncrawled")]
+    pub scope: String,
     pub base_url: Option<String>,
 }
 
@@ -131,12 +152,88 @@ pub struct TaskDetailResponse {
     pub task: TaskListItem,
     pub code_results: Vec<CodeResultResponse>,
     pub page_results: Vec<PageResultResponse>,
+    /// Populated only for `entity_auto_crawl` tasks; `None` (omitted from JSON)
+    /// for all other task types (backwards compatible).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_auto: Option<EntityAutoCrawlDetail>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TaskListResponse {
     pub tasks: Vec<TaskListItem>,
     pub total: u64,
+}
+
+// --- Entity auto crawl DTOs ---
+
+/// One created task within an entity-auto-crawl batch response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntityAutoCrawlTaskItem {
+    pub entity_id: i64,
+    pub entity_name: String,
+    pub task_id: i64,
+}
+
+/// Response body for `POST /crawl/entity-auto-crawl`.
+///
+/// `picked` is the number of tasks actually created (`min(count, candidates)`),
+/// and `remaining` is how many uncrawled-scope candidates are still selectable
+/// after this pick (the current round's not-yet-claimed entities).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntityAutoCrawlTaskResponse {
+    pub tasks: Vec<EntityAutoCrawlTaskItem>,
+    pub picked: u32,
+    pub remaining: u64,
+}
+
+/// Response body for `GET /crawl/entity-progress/summary`.
+///
+/// `remaining` is built on the same `link <> ''` base as `total`, so it never
+/// exceeds `total`. `remaining` and `failed` are NOT mutually exclusive.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntityProgressSummary {
+    pub entity_type: String,
+    pub current_round: i64,
+    pub total: u64,
+    pub remaining: u64,
+    pub failed: u64,
+}
+
+/// One row of `GET /crawl/entity-progress`. `status` is derived (not stored):
+/// read from `crawl_task.status` via the `last_task_id` join. `last_*` fields
+/// are `None` when the entity has no progress row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntityProgressItem {
+    pub entity_id: i64,
+    pub entity_name: String,
+    pub status: String,
+    pub last_crawled_round: Option<i32>,
+    pub last_crawled_at: Option<DateTime<Utc>>,
+    pub last_task_id: Option<i64>,
+}
+
+/// Response body for `GET /crawl/entity-progress`.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntityProgressListResponse {
+    pub items: Vec<EntityProgressItem>,
+    pub total: u64,
+}
+
+/// Entity-auto-crawl detail block attached to `TaskDetailResponse`.
+///
+/// `failed_pages` / `failed_page_numbers` count only REAL non-404 source page
+/// errors: the first-404 end-of-listing page and restart-interrupted pages are
+/// excluded. There is no `stop_reason` field; the stop reason is conveyed by
+/// the task's `status` plus `crawl_task.error_message` (the breaker path writes
+/// a message beginning `Circuit breaker:`).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntityAutoCrawlDetail {
+    pub entity_type: String,
+    pub entity_id: i64,
+    pub entity_name: String,
+    pub success_pages: i32,
+    pub failed_pages: i32,
+    pub failed_page_numbers: Vec<i32>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -277,6 +374,19 @@ pub struct ListTasksQuery {
     pub task_type: Option<String>,
     pub page: Option<u64>,
     pub page_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EntityProgressQuery {
+    pub entity_type: String,
+    pub status: Option<String>,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EntityProgressSummaryQuery {
+    pub entity_type: String,
 }
 
 #[cfg(test)]

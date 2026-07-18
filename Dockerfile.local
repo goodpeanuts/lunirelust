@@ -2,6 +2,19 @@ FROM rust:1.92-slim AS builder
 
 WORKDIR /app
 
+# Pin the toolchain to the one baked into this base image. Without this, the
+# repo's rust-toolchain file makes rustup contact static.rust-lang.org to
+# "resolve" the 1.92 channel on every fresh build layer; that egress is flaky
+# here and breaks the offline build. The base image already ships 1.92, so force
+# rustup to use it and never phone home.
+ENV RUSTUP_TOOLCHAIN=1.92
+
+# Use a domestic Debian mirror (TUNA) to work around flaky access to
+# deb.debian.org in this build environment. Handles both the deb822 format
+# (/etc/apt/sources.list.d/debian.sources on trixie slim) and the legacy list.
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y libssl-dev pkg-config curl
 
@@ -21,6 +34,10 @@ FROM debian:stable-slim
 
 WORKDIR /app
 
+# Domestic Debian mirror (TUNA) for the runtime stage as well.
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true
+
 RUN apt-get update && apt-get install -y libssl3 ca-certificates curl file \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,12 +47,29 @@ COPY --from=node:22-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# Pre-install Playwright + Chromium with ALL required system dependencies.
-# install-deps knows exactly which shared libs Chromium needs for the current
-# Playwright version — replacing a manual dep list that may become incomplete.
-RUN npm install -g playwright \
- && npx playwright install chromium \
- && apt-get update \
+# Use domestic mirror for npm. The Playwright browser binaries are NOT downloaded
+# at build time here (the npmmirror CFT path 404s and the official CDN is flaky in
+# this environment); instead they are pre-downloaded on the host into
+# .playwright-cache/ and copied in below, so the build needs no browser egress.
+RUN npm config set registry https://registry.npmmirror.com
+
+# Install the Playwright CLI pinned to the SAME version as the luneth bridge
+# (vendor/luneth/playwright-bridge/package.json / package-lock.json, currently
+# 1.59.1 -> chromium-1217). The bridge resolves its own node_modules first, so a
+# mismatched pre-installed Chromium revision makes luneth think the browser is
+# "missing" and try to download the right one at runtime; offline containers then
+# fail with "Chromium installation failed (exit 1)" and the crawl circuit-breaks.
+# Keep this pin in sync whenever luneth bumps its bridge Playwright version.
+RUN npm install -g playwright@1.59.1
+
+# Copy the host-pre-downloaded browser bundle (chromium-1217 + headless-shell +
+# ffmpeg) into the Playwright cache, avoiding any browser download during build.
+COPY .playwright-cache/ /root/.cache/ms-playwright/
+
+# Install ONLY the system shared libraries Chromium needs (no browser download).
+# install-deps resolves the exact libs for the installed Playwright version and
+# uses apt (TUNA mirror configured above), which is reachable here.
+RUN apt-get update \
  && npx playwright install-deps chromium \
  && rm -rf /var/lib/apt/lists/*
 
