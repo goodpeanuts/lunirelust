@@ -32,6 +32,7 @@ pub async fn get_idol_by_id(
 )]
 pub async fn get_idols(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let search_dto = SearchIdolDto {
@@ -44,7 +45,7 @@ pub async fn get_idols(
     let paginated_result = state
         .luna_service
         .idol_service()
-        .get_idol_list_paginated(search_dto, pagination)
+        .get_idol_list_by_affinity(search_dto, pagination, claims.sub)
         .await?;
     Ok(RestApiResponse::success(paginated_result))
 }

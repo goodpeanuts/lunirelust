@@ -31,6 +31,14 @@ pub trait LabelServiceTrait: Send + Sync {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<LabelDto>, AppError>;
 
+    /// Retrieves the label list ordered by the given user's affinity score.
+    async fn get_label_list_by_affinity(
+        &self,
+        search_dto: SearchLabelDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<LabelDto>, AppError>;
+
     /// Retrieves all labels.
     async fn get_labels(&self) -> Result<Vec<LabelDto>, AppError>;
 

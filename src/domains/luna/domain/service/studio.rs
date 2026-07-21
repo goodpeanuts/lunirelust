@@ -34,6 +34,14 @@ pub trait StudioServiceTrait: Send + Sync {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<StudioDto>, AppError>;
 
+    /// Retrieves the studio list ordered by the given user's affinity score.
+    async fn get_studio_list_by_affinity(
+        &self,
+        search_dto: SearchStudioDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<StudioDto>, AppError>;
+
     /// Retrieves all studios.
     async fn get_studios(&self) -> Result<Vec<StudioDto>, AppError>;
 

@@ -2,7 +2,7 @@ use crate::domains::search::SearchEntityType;
 use crate::{
     common::{config::Config, error::AppError},
     domains::luna::{
-        domain::{IdolRepository, IdolServiceTrait},
+        domain::{IdolAffinityRepository, IdolRepository, IdolServiceTrait},
         dto::{
             CreateIdolDto, EntityCountDto, IdolDto, IdolWithoutImageDto, PaginatedResponse,
             PaginationQuery, SearchIdolDto, UpdateIdolDto,
@@ -21,6 +21,10 @@ use tokio::fs;
 pub struct IdolService {
     db: DatabaseConnection,
     repo: Arc<dyn IdolRepository + Send + Sync>,
+    /// Separate handle for affinity-ordered listing. A `dyn IdolRepository`
+    /// object cannot expose `IdolAffinityRepository` methods, so the affinity
+    /// trait needs its own trait object (both wrap `IdolRepo`).
+    affinity_repo: Arc<dyn IdolAffinityRepository + Send + Sync>,
     config: Config,
 }
 
@@ -30,6 +34,7 @@ impl IdolServiceTrait for IdolService {
         Arc::new(Self {
             db: db.clone(),
             repo: Arc::new(IdolRepo),
+            affinity_repo: Arc::new(IdolRepo),
             config,
         })
     }
@@ -63,6 +68,26 @@ impl IdolServiceTrait for IdolService {
         let paginated = self
             .repo
             .find_list_paginated(&self.db, search_dto, pagination)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(IdolDto::from).collect(),
+        })
+    }
+
+    async fn get_idol_list_by_affinity(
+        &self,
+        search_dto: SearchIdolDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<IdolDto>, AppError> {
+        let paginated = self
+            .affinity_repo
+            .find_list_paginated_by_affinity(&self.db, search_dto, pagination, &user_id)
             .await
             .map_err(AppError::DatabaseError)?;
 

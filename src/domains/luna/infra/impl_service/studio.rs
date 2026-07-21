@@ -2,7 +2,7 @@ use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
-        domain::{StudioRepository, StudioServiceTrait},
+        domain::{StudioAffinityRepository, StudioRepository, StudioServiceTrait},
         dto::{
             CreateStudioDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchStudioDto,
             StudioDto, UpdateStudioDto,
@@ -19,6 +19,10 @@ use std::sync::Arc;
 pub struct StudioService {
     db: DatabaseConnection,
     repo: Arc<dyn StudioRepository + Send + Sync>,
+    /// Separate handle for affinity-ordered listing. A `dyn StudioRepository`
+    /// object cannot expose `StudioAffinityRepository` methods, so the affinity
+    /// trait needs its own trait object (both wrap `StudioRepo`).
+    affinity_repo: Arc<dyn StudioAffinityRepository + Send + Sync>,
 }
 
 #[async_trait]
@@ -27,6 +31,7 @@ impl StudioServiceTrait for StudioService {
         Arc::new(Self {
             db: db.clone(),
             repo: Arc::new(StudioRepo),
+            affinity_repo: Arc::new(StudioRepo),
         })
     }
 
@@ -67,6 +72,25 @@ impl StudioServiceTrait for StudioService {
     async fn get_studios(&self) -> Result<Vec<StudioDto>, AppError> {
         let studios = self.repo.find_all(&self.db).await?;
         Ok(studios.into_iter().map(StudioDto::from).collect())
+    }
+
+    async fn get_studio_list_by_affinity(
+        &self,
+        search_dto: SearchStudioDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<StudioDto>, AppError> {
+        let paginated = self
+            .affinity_repo
+            .find_list_paginated_by_affinity(&self.db, search_dto, pagination, &user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(StudioDto::from).collect(),
+        })
     }
 
     async fn create_studio(&self, create_dto: CreateStudioDto) -> Result<StudioDto, AppError> {

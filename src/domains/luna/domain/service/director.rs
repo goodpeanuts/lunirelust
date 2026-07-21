@@ -34,6 +34,14 @@ pub trait DirectorServiceTrait: Send + Sync {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<DirectorDto>, AppError>;
 
+    /// Retrieves the director list ordered by the given user's affinity score.
+    async fn get_director_list_by_affinity(
+        &self,
+        search_dto: SearchDirectorDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<DirectorDto>, AppError>;
+
     /// Retrieves all directors.
     async fn get_directors(&self) -> Result<Vec<DirectorDto>, AppError>;
 

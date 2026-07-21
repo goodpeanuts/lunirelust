@@ -31,6 +31,14 @@ pub trait IdolServiceTrait: Send + Sync {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<IdolDto>, AppError>;
 
+    /// Retrieves the idol list ordered by the given user's affinity score.
+    async fn get_idol_list_by_affinity(
+        &self,
+        search_dto: SearchIdolDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<IdolDto>, AppError>;
+
     /// Retrieves all idols.
     async fn get_idols(&self) -> Result<Vec<IdolDto>, AppError>;
 

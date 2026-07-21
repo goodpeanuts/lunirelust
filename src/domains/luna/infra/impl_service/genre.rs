@@ -2,7 +2,7 @@ use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
-        domain::{GenreRepository, GenreServiceTrait},
+        domain::{GenreAffinityRepository, GenreRepository, GenreServiceTrait},
         dto::{
             CreateGenreDto, EntityCountDto, GenreDto, PaginatedResponse, PaginationQuery,
             SearchGenreDto, UpdateGenreDto,
@@ -19,6 +19,10 @@ use std::sync::Arc;
 pub struct GenreService {
     db: DatabaseConnection,
     repo: Arc<dyn GenreRepository + Send + Sync>,
+    /// Separate handle for affinity-ordered listing. A `dyn GenreRepository`
+    /// object cannot expose `GenreAffinityRepository` methods, so the affinity
+    /// trait needs its own trait object (both wrap `GenreRepo`).
+    affinity_repo: Arc<dyn GenreAffinityRepository + Send + Sync>,
 }
 
 #[async_trait]
@@ -27,6 +31,7 @@ impl GenreServiceTrait for GenreService {
         Arc::new(Self {
             db,
             repo: Arc::new(GenreRepo {}),
+            affinity_repo: Arc::new(GenreRepo {}),
         })
     }
 
@@ -64,6 +69,25 @@ impl GenreServiceTrait for GenreService {
     async fn get_genres(&self) -> Result<Vec<GenreDto>, AppError> {
         let genres = self.repo.find_all(&self.db).await?;
         Ok(genres.into_iter().map(Into::into).collect())
+    }
+
+    async fn get_genre_list_by_affinity(
+        &self,
+        search_dto: SearchGenreDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<GenreDto>, AppError> {
+        let paginated = self
+            .affinity_repo
+            .find_list_paginated_by_affinity(&self.db, search_dto, pagination, &user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(Into::into).collect(),
+        })
     }
 
     async fn create_genre(&self, create_dto: CreateGenreDto) -> Result<GenreDto, AppError> {

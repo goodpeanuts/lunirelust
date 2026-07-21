@@ -36,6 +36,7 @@ pub async fn get_genre_by_id(
 )]
 pub async fn get_genres(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let search_dto = SearchGenreDto {
@@ -44,11 +45,10 @@ pub async fn get_genres(
         link: None,
     };
 
-    // Always use paginated response for consistency
     let paginated_result = state
         .luna_service
         .genre_service()
-        .get_genre_list_paginated(search_dto, pagination)
+        .get_genre_list_by_affinity(search_dto, pagination, claims.sub)
         .await?;
     Ok(RestApiResponse::success(paginated_result))
 }

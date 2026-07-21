@@ -2,7 +2,7 @@ use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
-        domain::{LabelRepository, LabelServiceTrait},
+        domain::{LabelAffinityRepository, LabelRepository, LabelServiceTrait},
         dto::{
             CreateLabelDto, EntityCountDto, LabelDto, PaginatedResponse, PaginationQuery,
             SearchLabelDto, UpdateLabelDto,
@@ -19,6 +19,10 @@ use std::sync::Arc;
 pub struct LabelService {
     db: DatabaseConnection,
     repo: Arc<dyn LabelRepository + Send + Sync>,
+    /// Separate handle for affinity-ordered listing. A `dyn LabelRepository`
+    /// object cannot expose `LabelAffinityRepository` methods, so the affinity
+    /// trait needs its own trait object (both wrap `LabelRepo`).
+    affinity_repo: Arc<dyn LabelAffinityRepository + Send + Sync>,
 }
 
 #[async_trait]
@@ -27,6 +31,7 @@ impl LabelServiceTrait for LabelService {
         Arc::new(Self {
             db,
             repo: Arc::new(LabelRepo {}),
+            affinity_repo: Arc::new(LabelRepo {}),
         })
     }
 
@@ -64,6 +69,25 @@ impl LabelServiceTrait for LabelService {
     async fn get_labels(&self) -> Result<Vec<LabelDto>, AppError> {
         let labels = self.repo.find_all(&self.db).await?;
         Ok(labels.into_iter().map(Into::into).collect())
+    }
+
+    async fn get_label_list_by_affinity(
+        &self,
+        search_dto: SearchLabelDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<LabelDto>, AppError> {
+        let paginated = self
+            .affinity_repo
+            .find_list_paginated_by_affinity(&self.db, search_dto, pagination, &user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(Into::into).collect(),
+        })
     }
 
     async fn create_label(&self, create_dto: CreateLabelDto) -> Result<LabelDto, AppError> {

@@ -36,6 +36,7 @@ pub async fn get_label_by_id(
 )]
 pub async fn get_labels(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let search_dto = SearchLabelDto {
@@ -44,11 +45,10 @@ pub async fn get_labels(
         link: None,
     };
 
-    // Always use paginated response for consistency
     let paginated_result = state
         .luna_service
         .label_service()
-        .get_label_list_paginated(search_dto, pagination)
+        .get_label_list_by_affinity(search_dto, pagination, claims.sub)
         .await?;
     Ok(RestApiResponse::success(paginated_result))
 }
