@@ -3,6 +3,7 @@
 //! This module contains all database entities generated from the database schema.
 
 pub mod crawl_code_result;
+pub mod crawl_entity_progress;
 pub mod crawl_page_result;
 pub mod crawl_task;
 pub mod devices;
@@ -25,6 +26,7 @@ pub mod user_record_interaction;
 pub mod users;
 
 pub use crawl_code_result::{CrawlCodeResultEntity, CrawlCodeResultModel};
+pub use crawl_entity_progress::{CrawlEntityProgressEntity, CrawlEntityProgressModel};
 pub use crawl_page_result::{CrawlPageResultEntity, CrawlPageResultModel};
 pub use crawl_task::{CrawlTaskEntity, CrawlTaskModel};
 pub use devices::{DevicesEntity, DevicesModel};

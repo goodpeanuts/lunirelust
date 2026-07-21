@@ -31,6 +31,14 @@ pub trait GenreServiceTrait: Send + Sync {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<GenreDto>, AppError>;
 
+    /// Retrieves the genre list ordered by the given user's affinity score.
+    async fn get_genre_list_by_affinity(
+        &self,
+        search_dto: SearchGenreDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<GenreDto>, AppError>;
+
     /// Retrieves all genres.
     async fn get_genres(&self) -> Result<Vec<GenreDto>, AppError>;
 

@@ -1,22 +1,13 @@
-# Docker ignore file
-db/
+# Keep build artifacts, VCS, and local runtime data OUT of the builder stage's
+# `COPY . .` so they don't change its cache key or break context scanning.
+# .playwright-cache/ is intentionally NOT excluded: a dedicated COPY step needs it.
 target/
 .git/
-.gitignore
-.gitmodules
-.env
-.env.test
-<!-- Cargo.lock -->
-justfile
-Dockerfile
-Dockerfile.local
-docker-compose.yml
-docker-compose.build.yml
-tests/
-assets/
-README.md
-CLAUDE.md
-openspec/
-xdoc/
-subm/
-<!-- subm/luna/data/db/ -->
+
+# Local runtime data volumes present in the repo root (root/other-owned,
+# unreadable by the build user -> "open db: permission denied"). Never needed
+# in the image.
+db/
+meili_data*/
+data/
+backups/

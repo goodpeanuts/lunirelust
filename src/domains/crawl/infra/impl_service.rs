@@ -1,5 +1,6 @@
 mod impl_auto;
 mod impl_batch;
+mod impl_entity_auto_crawl;
 mod impl_helpers;
 mod impl_idol;
 mod impl_update;
@@ -15,14 +16,17 @@ use serde_json;
 
 use crate::common::config::Config;
 use crate::common::error::AppError;
-use crate::domains::crawl::domain::model::CrawlTaskInput;
 use crate::domains::crawl::domain::model::{
-    AutoTaskInput, BatchTaskInput, CrawlTask, CrawlTaskDetail, IdolTaskInput, TaskStatus, TaskType,
-    UpdateFilters, UpdateTaskInput,
+    AutoTaskInput, BatchTaskInput, CrawlTask, CrawlTaskDetail, CrawlTaskInput,
+    EntityAutoCrawlScope, EntityAutoCrawlTaskInput, EntityAutoCrawlType, IdolTaskInput, TaskStatus,
+    TaskType, UpdateFilters, UpdateTaskInput,
 };
-use crate::domains::crawl::domain::repository::CrawlTaskRepository;
+use crate::domains::crawl::domain::repository::{CrawlTaskRepository, EntityProgressRepository};
 use crate::domains::crawl::domain::service::CrawlServiceTrait;
-use crate::domains::crawl::dto::task_dto::{SseEvent, TaskSummary};
+use crate::domains::crawl::dto::task_dto::{
+    EntityAutoCrawlTaskItem, EntityAutoCrawlTaskResponse, EntityProgressItem,
+    EntityProgressListResponse, EntityProgressSummary, SseEvent, TaskSummary,
+};
 use crate::domains::crawl::infra::crawler::{CancelAction, CrawlTaskManager, CrawlerStatus};
 use crate::domains::luna::{FileServiceTrait as LunaFileServiceTrait, RecordRepository};
 use crate::domains::user::InteractionRepository;
@@ -31,6 +35,7 @@ pub struct CrawlService {
     pub(super) db: DatabaseConnection,
     pub(super) config: Config,
     pub(super) repo: Arc<dyn CrawlTaskRepository + Send + Sync>,
+    pub(super) entity_repo: Arc<dyn EntityProgressRepository + Send + Sync>,
     pub(super) interaction_repo: Arc<dyn InteractionRepository + Send + Sync>,
     pub(super) record_repo: Arc<dyn RecordRepository + Send + Sync>,
     #[expect(
@@ -60,10 +65,24 @@ impl CrawlService {
         }
     }
 
+    /// Parse an `EntityAutoCrawlTaskInput` from a task's persisted payload, if it
+    /// is an entity-auto-crawl task. Used by `cancel_task` (to read the scope for
+    /// the round clamp) and `reconcile_startup` (to locate the entity).
+    fn parse_entity_auto_input(payload: &Option<String>) -> Option<EntityAutoCrawlTaskInput> {
+        let p = payload.as_deref()?;
+        let input: CrawlTaskInput = serde_json::from_str(p).ok()?;
+        match input {
+            CrawlTaskInput::EntityAutoCrawl(ei) => Some(ei),
+            _ => None,
+        }
+    }
+
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         db: DatabaseConnection,
         config: Config,
         repo: Arc<dyn CrawlTaskRepository + Send + Sync>,
+        entity_repo: Arc<dyn EntityProgressRepository + Send + Sync>,
         interaction_repo: Arc<dyn InteractionRepository + Send + Sync>,
         record_repo: Arc<dyn RecordRepository + Send + Sync>,
         file_service: Arc<dyn LunaFileServiceTrait + Send + Sync>,
@@ -73,6 +92,7 @@ impl CrawlService {
             db,
             config,
             repo,
+            entity_repo,
             interaction_repo,
             record_repo,
             file_service,
@@ -87,6 +107,7 @@ impl CrawlServiceTrait for CrawlService {
         db: DatabaseConnection,
         config: Config,
         crawl_repo: Arc<dyn CrawlTaskRepository + Send + Sync>,
+        entity_repo: Arc<dyn EntityProgressRepository + Send + Sync>,
         interaction_repo: Arc<dyn InteractionRepository + Send + Sync>,
         record_repo: Arc<dyn RecordRepository + Send + Sync>,
         file_service: Arc<dyn LunaFileServiceTrait + Send + Sync>,
@@ -96,6 +117,7 @@ impl CrawlServiceTrait for CrawlService {
             db,
             config,
             repo: crawl_repo,
+            entity_repo,
             interaction_repo,
             record_repo,
             file_service,
@@ -340,22 +362,38 @@ impl CrawlServiceTrait for CrawlService {
 
         let mut mgr = self.task_manager.lock().await;
         match mgr.cancel_task(task_id) {
+            // Running: only signal cancellation via the token. The executor owns
+            // the terminal transition (finalizes Cancelled + scope-aware round
+            // clamp for EntityAutoCrawl), avoiding a race with normal finalize.
             CancelAction::Running => {}
             CancelAction::RemovedFromQueue => {
                 drop(mgr);
-                self.repo
-                    .complete_task(
-                        &self.db,
-                        task_id,
-                        &TaskStatus::Cancelled,
-                        task.success_count,
-                        task.fail_count,
-                        task.skip_count,
-                        task.total_codes,
-                        None,
-                    )
-                    .await
-                    .map_err(AppError::DatabaseError)?;
+                if Self::parse_entity_auto_input(&task.input_payload).is_some() {
+                    // EntityAutoCrawl (Model D): cancellation only marks the task
+                    // cancelled; it never touches the progress row's round. The
+                    // entity stays at its round (= MIN) and is immediately
+                    // re-selectable via the uncrawled scope.
+                    self.entity_repo
+                        .cancel_queued_entity_auto_task(&self.db, task_id)
+                        .await
+                        .map_err(AppError::DatabaseError)?;
+                } else {
+                    // Non-entity-auto task, or unreadable payload: mark cancelled
+                    // without any progress-row side effect.
+                    self.repo
+                        .complete_task(
+                            &self.db,
+                            task_id,
+                            &TaskStatus::Cancelled,
+                            task.success_count,
+                            task.fail_count,
+                            task.skip_count,
+                            task.total_codes,
+                            None,
+                        )
+                        .await
+                        .map_err(AppError::DatabaseError)?;
+                }
 
                 let pages_crawled = self.count_successful_pages(task_id).await;
                 let mgr = self.task_manager.lock().await;
@@ -416,6 +454,130 @@ impl CrawlServiceTrait for CrawlService {
             Some(d) if d.task.user_id == user_id => Ok(Some(d)),
             _ => Ok(None),
         }
+    }
+
+    async fn start_entity_auto_crawl(
+        &self,
+        user_id: &str,
+        entity_type: EntityAutoCrawlType,
+        count: u32,
+        scope: EntityAutoCrawlScope,
+        base_url: Option<String>,
+    ) -> Result<EntityAutoCrawlTaskResponse, AppError> {
+        let base_url = Self::resolve_base_url(base_url)?;
+        let current_round = self
+            .entity_repo
+            .current_round(&self.db, entity_type)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        // Atomic claim: select + round-effect + task creation in one transaction,
+        // guarded by a per-type advisory lock.
+        let claimed = match scope {
+            EntityAutoCrawlScope::Uncrawled => {
+                self.entity_repo
+                    .claim_uncrawled(
+                        &self.db,
+                        entity_type,
+                        count,
+                        current_round,
+                        user_id,
+                        &base_url,
+                    )
+                    .await
+            }
+            EntityAutoCrawlScope::Failed => {
+                self.entity_repo
+                    .claim_failed(
+                        &self.db,
+                        entity_type,
+                        count,
+                        current_round,
+                        user_id,
+                        &base_url,
+                    )
+                    .await
+            }
+        }
+        .map_err(AppError::DatabaseError)?;
+
+        let mut tasks = Vec::with_capacity(claimed.len());
+        {
+            let mut mgr = self.task_manager.lock().await;
+            for c in &claimed {
+                mgr.enqueue(c.task_id);
+                tasks.push(EntityAutoCrawlTaskItem {
+                    entity_id: c.entity_id,
+                    entity_name: c.entity_name.clone(),
+                    task_id: c.task_id,
+                });
+            }
+        }
+
+        let remaining = self
+            .entity_repo
+            .count_remaining(&self.db, entity_type, current_round)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(EntityAutoCrawlTaskResponse {
+            tasks,
+            picked: claimed.len() as u32,
+            remaining,
+        })
+    }
+
+    async fn list_entity_progress(
+        &self,
+        entity_type: EntityAutoCrawlType,
+        status: Option<String>,
+        page: u64,
+        page_size: u64,
+    ) -> Result<EntityProgressListResponse, AppError> {
+        let status_filter = match status.as_deref() {
+            Some(s) if matches!(s, "never" | "in_progress" | "completed" | "failed") => Some(s),
+            Some(_) => {
+                return Err(AppError::ValidationError(
+                    "status must be one of: never, in_progress, completed, failed".to_owned(),
+                ));
+            }
+            None => None,
+        };
+        let (rows, total) = self
+            .entity_repo
+            .list_progress(&self.db, entity_type, status_filter, page, page_size)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        let items = rows
+            .into_iter()
+            .map(|r| EntityProgressItem {
+                entity_id: r.entity_id,
+                entity_name: r.entity_name,
+                status: r.status,
+                last_crawled_round: r.last_crawled_round,
+                last_crawled_at: r.last_crawled_at,
+                last_task_id: r.last_task_id,
+            })
+            .collect();
+        Ok(EntityProgressListResponse { items, total })
+    }
+
+    async fn get_entity_progress_summary(
+        &self,
+        entity_type: EntityAutoCrawlType,
+    ) -> Result<EntityProgressSummary, AppError> {
+        let s = self
+            .entity_repo
+            .progress_summary(&self.db, entity_type)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        Ok(EntityProgressSummary {
+            entity_type: entity_type.as_str().to_owned(),
+            current_round: s.current_round,
+            total: s.total,
+            remaining: s.remaining,
+            failed: s.failed,
+        })
     }
 
     fn task_manager(&self) -> Arc<tokio::sync::Mutex<CrawlTaskManager>> {
@@ -526,6 +688,22 @@ impl CrawlServiceTrait for CrawlService {
                         .await
                     {
                         tracing::warn!("Failed to mark running task {} as failed: {e}", task.id);
+                    }
+
+                    // EntityAutoCrawl: stamp last_crawled_at. The round is left
+                    // unchanged (the bump stays), so the entity is selectable via
+                    // the failed scope for a retry.
+                    if let Some(ei) = Self::parse_entity_auto_input(&task.input_payload) {
+                        if let Err(e) = self
+                            .entity_repo
+                            .touch_on_finalize(&self.db, ei.entity_type, ei.entity_id)
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to touch entity progress for task {}: {e}",
+                                task.id
+                            );
+                        }
                     }
                 }
                 TaskStatus::Queued => {

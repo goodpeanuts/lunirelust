@@ -31,6 +31,11 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 
+    /// Semantically invalid input that is well-formed (e.g. an unknown enum
+    /// value or an out-of-range parameter). Maps to 422 Unprocessable Entity.
+    #[error("Unprocessable entity: {0}")]
+    UnprocessableEntity(String),
+
     #[error("Conflict: {0}")]
     Conflict(String),
 
@@ -74,6 +79,7 @@ impl IntoResponse for AppError {
             | Self::InvalidFileName
             | Self::UnsupportedFileExtension
             | Self::MissingCredentials => StatusCode::BAD_REQUEST,
+            Self::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::DatabaseError(_)
             | Self::InternalError
             | Self::InternalErrorWithMessage(_)

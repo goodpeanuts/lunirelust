@@ -60,9 +60,11 @@ mod domain {
     };
 
     pub use repository::{
-        director::DirectorRepository, genre::GenreRepository, idol::IdolRepository,
-        label::LabelRepository, record::CreatedNestedEntities, record::RecordRepository,
-        series::SeriesRepository, studio::StudioRepository,
+        director::DirectorAffinityRepository, director::DirectorRepository,
+        genre::GenreAffinityRepository, genre::GenreRepository, idol::IdolAffinityRepository,
+        idol::IdolRepository, label::LabelAffinityRepository, label::LabelRepository,
+        record::CreatedNestedEntities, record::RecordRepository, series::SeriesAffinityRepository,
+        series::SeriesRepository, studio::StudioAffinityRepository, studio::StudioRepository,
     };
 }
 
@@ -118,7 +120,10 @@ pub(crate) mod infra {
 // Re-export commonly used items for convenience
 pub use api::routes::{luna_routes, LunaApiDoc};
 pub use domain::{
-    CreatedNestedEntities, FileServiceTrait, LunaServiceTrait, RecordRepository, RecordServiceTrait,
+    CreatedNestedEntities, DirectorAffinityRepository, FileServiceTrait, GenreAffinityRepository,
+    IdolAffinityRepository, LabelAffinityRepository, LunaServiceTrait, Record, RecordRepository,
+    RecordServiceTrait, SeriesAffinityRepository, StudioAffinityRepository,
 };
 pub use infra::impl_service::LunaService;
 pub use infra::search_outbox::outbox_entity_upsert;
+pub use infra::IdolRepo;

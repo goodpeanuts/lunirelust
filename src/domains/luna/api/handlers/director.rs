@@ -36,6 +36,7 @@ pub async fn get_director_by_id(
 )]
 pub async fn get_directors(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let search_dto = SearchDirectorDto {
@@ -44,11 +45,10 @@ pub async fn get_directors(
         link: None,
     };
 
-    // Always use paginated response for consistency
     let paginated_result = state
         .luna_service
         .director_service()
-        .get_director_list_paginated(search_dto, pagination)
+        .get_director_list_by_affinity(search_dto, pagination, claims.sub)
         .await?;
     Ok(RestApiResponse::success(paginated_result))
 }

@@ -2,7 +2,7 @@ use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
-        domain::{SeriesRepository, SeriesServiceTrait},
+        domain::{SeriesAffinityRepository, SeriesRepository, SeriesServiceTrait},
         dto::{
             CreateSeriesDto, EntityCountDto, PaginatedResponse, PaginationQuery, SearchSeriesDto,
             SeriesDto, UpdateSeriesDto,
@@ -19,6 +19,10 @@ use std::sync::Arc;
 pub struct SeriesService {
     db: DatabaseConnection,
     repo: Arc<dyn SeriesRepository + Send + Sync>,
+    /// Separate handle for affinity-ordered listing. A `dyn SeriesRepository`
+    /// object cannot expose `SeriesAffinityRepository` methods, so the affinity
+    /// trait needs its own trait object (both wrap `SeriesRepo`).
+    affinity_repo: Arc<dyn SeriesAffinityRepository + Send + Sync>,
 }
 
 #[async_trait]
@@ -27,6 +31,7 @@ impl SeriesServiceTrait for SeriesService {
         Arc::new(Self {
             db: db.clone(),
             repo: Arc::new(SeriesRepo),
+            affinity_repo: Arc::new(SeriesRepo),
         })
     }
 
@@ -63,6 +68,26 @@ impl SeriesServiceTrait for SeriesService {
         let paginated = self
             .repo
             .find_list_paginated(&self.db, search_dto, pagination)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(SeriesDto::from).collect(),
+        })
+    }
+
+    async fn get_series_list_by_affinity(
+        &self,
+        search_dto: SearchSeriesDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<SeriesDto>, AppError> {
+        let paginated = self
+            .affinity_repo
+            .find_list_paginated_by_affinity(&self.db, search_dto, pagination, &user_id)
             .await
             .map_err(AppError::DatabaseError)?;
 

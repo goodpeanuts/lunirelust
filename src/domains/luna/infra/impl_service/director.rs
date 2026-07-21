@@ -2,7 +2,7 @@ use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
     domains::luna::{
-        domain::{DirectorRepository, DirectorServiceTrait},
+        domain::{DirectorAffinityRepository, DirectorRepository, DirectorServiceTrait},
         dto::{
             CreateDirectorDto, DirectorDto, EntityCountDto, PaginatedResponse, PaginationQuery,
             SearchDirectorDto, UpdateDirectorDto,
@@ -19,6 +19,10 @@ use std::sync::Arc;
 pub struct DirectorService {
     db: DatabaseConnection,
     repo: Arc<dyn DirectorRepository + Send + Sync>,
+    /// Separate handle for affinity-ordered listing. A `dyn DirectorRepository`
+    /// object cannot expose `DirectorAffinityRepository` methods, so the
+    /// affinity trait needs its own trait object (both wrap `DirectorRepo`).
+    affinity_repo: Arc<dyn DirectorAffinityRepository + Send + Sync>,
 }
 
 #[async_trait]
@@ -27,6 +31,7 @@ impl DirectorServiceTrait for DirectorService {
         Arc::new(Self {
             db,
             repo: Arc::new(DirectorRepo {}),
+            affinity_repo: Arc::new(DirectorRepo {}),
         })
     }
 
@@ -67,6 +72,25 @@ impl DirectorServiceTrait for DirectorService {
     async fn get_directors(&self) -> Result<Vec<DirectorDto>, AppError> {
         let directors = self.repo.find_all(&self.db).await?;
         Ok(directors.into_iter().map(Into::into).collect())
+    }
+
+    async fn get_director_list_by_affinity(
+        &self,
+        search_dto: SearchDirectorDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<DirectorDto>, AppError> {
+        let paginated = self
+            .affinity_repo
+            .find_list_paginated_by_affinity(&self.db, search_dto, pagination, &user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        Ok(PaginatedResponse {
+            count: paginated.count,
+            next: paginated.next,
+            previous: paginated.previous,
+            results: paginated.results.into_iter().map(Into::into).collect(),
+        })
     }
 
     async fn create_director(

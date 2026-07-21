@@ -34,6 +34,14 @@ pub trait SeriesServiceTrait: Send + Sync {
         pagination: PaginationQuery,
     ) -> Result<PaginatedResponse<SeriesDto>, AppError>;
 
+    /// Retrieves the series list ordered by the given user's affinity score.
+    async fn get_series_list_by_affinity(
+        &self,
+        search_dto: SearchSeriesDto,
+        pagination: PaginationQuery,
+        user_id: String,
+    ) -> Result<PaginatedResponse<SeriesDto>, AppError>;
+
     /// Retrieves all series.
     async fn get_series(&self) -> Result<Vec<SeriesDto>, AppError>;
 

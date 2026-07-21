@@ -20,3 +20,5 @@ meili_data/
 vendor/
 .cargo/config.vendor.toml
 .cargo/config.docker.toml
+
+.playwright*

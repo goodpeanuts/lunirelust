@@ -36,6 +36,7 @@ pub async fn get_series_by_id(
 )]
 pub async fn get_series(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let search_dto = SearchSeriesDto {
@@ -47,7 +48,7 @@ pub async fn get_series(
     let paginated_result = state
         .luna_service
         .series_service()
-        .get_series_list_paginated(search_dto, pagination)
+        .get_series_list_by_affinity(search_dto, pagination, claims.sub)
         .await?;
     Ok(RestApiResponse::success(paginated_result))
 }

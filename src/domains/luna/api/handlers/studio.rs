@@ -36,6 +36,7 @@ pub async fn get_studio_by_id(
 )]
 pub async fn get_studios(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     axum::extract::Query(pagination): axum::extract::Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let search_dto = SearchStudioDto {
@@ -47,7 +48,7 @@ pub async fn get_studios(
     let paginated_result = state
         .luna_service
         .studio_service()
-        .get_studio_list_paginated(search_dto, pagination)
+        .get_studio_list_by_affinity(search_dto, pagination, claims.sub)
         .await?;
     Ok(RestApiResponse::success(paginated_result))
 }
