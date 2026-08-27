@@ -72,24 +72,25 @@ git submodule update --init --recursive
 
 ### Configure the environment
 
-There is no root `.env.example`; the canonical template lives at
-[`subm/luna/.env.example`](subm/luna/.env.example). Copy it to the repo root and adapt
-the hostnames for local development — the deploy template uses Docker network hostnames
-(`luna-db`, `luna-meilisearch`, `luna-vllm`), so for local dev switch them to
-`localhost`:
+The root [`.env.example`](.env.example) is the canonical, non-secret development template.
 
 ```bash
-cp subm/luna/.env.example .env
+just dev
 ```
 
+On first run, `just dev` creates a private `.env` with mode `0600`, starts PostgreSQL and Meilisearch, applies forward migrations, and starts the backend with hot reload. It never overwrites an existing `.env`.
 
-`.env` drives the dev and build stacks; `.env.test` drives the test stack. They are
-nearly identical except for ports/project names.
+The committed [`.env.test`](.env.test) is fixed, non-sensitive configuration for disposable tests. `APP_ENV` and the database identity are intentionally different: dev is `luna_dev@127.0.0.1:5434/luna_dev`; test is `luna_test@127.0.0.1:5433/luna_test`. Do not load either file with `source`; the `just` recipes use the safe loader.
 
 ## Running locally
 
-The [`justfile`](justfile) provides recipes to start the dev stack (infrastructure +
-migrations + hot-reload) and to stop it.
+Use these three local lifecycle commands:
+
+```bash
+just dev        # infrastructure + forward migration + hot reload
+just dev-infra  # infrastructure only
+just dev-down   # stop dev containers; persistent data remains
+```
 
 Once running:
 
@@ -108,23 +109,19 @@ it. Pinned image tags and vLLM resource/CLI tuning live in
 
 ## Database and migrations
 
-Migrations are managed by the `migration` workspace member (SeaORM); the
-[`justfile`](justfile) provides recipes to apply and roll them back.
+The application only connects to the database; it never migrates on startup. `just dev` explicitly applies forward migrations before starting the application.
 
-Pending migrations **also apply automatically on application startup** (see
-[`src/common/config.rs`](src/common/config.rs)), so starting the dev server keeps the
-schema current without a separate step.
+Use `just migrate-up` or `just migrate-status` for normal development. The compatibility wrapper [`migrate.sh`](migrate.sh) requires an explicit command, for example `./migrate.sh status`; running it without a command fails safely.
 
-For advanced operations (status, fresh, reset, generate, db-reset, backup, ...), use the
-[`migrate.sh`](migrate.sh) helper — run it with no argument to list every subcommand,
-and see the script header for what each does.
+Every connection and migration validates `APP_ENV`, protocol, host, port, user, and database name before opening a connection. Destructive migration commands are permanently rejected in production.
 
 ## Testing and quality
 
-The [`justfile`](justfile) provides recipes to bring up the test stack, run the test
-suite, and run the lint / dependency / typo gates. The search integration tests require
-a live MeiliSearch instance and auto-skip when it is unreachable, so running the suite
-without the compose stack does not fail.
+Run `just test`. It always removes the fixed `lunirelust-test` project and its named volumes before and after the suite, starts isolated services, applies migrations, runs nextest and doctests, and cleans `.local/test`.
+
+Run `just check` for static checks or `just ci` for the same gate used by CI. Inherited database, Compose project, PostgreSQL, Meilisearch, and assets variables are cleared before the selected environment file is loaded, so a terminal left with production variables cannot redirect tests.
+
+Database integration tests intentionally fail when run without the test environment; use `just test`. Pure unit tests remain runnable directly.
 
 ### Pre-commit hooks
 

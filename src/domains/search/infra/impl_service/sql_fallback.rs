@@ -568,26 +568,15 @@ pub(super) async fn search_sql_fallback(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Once;
 
     use sea_orm::{ActiveModelTrait as _, DatabaseConnection, Set};
 
     use crate::common::config::{setup_database, Config};
     use crate::entities::record;
 
-    static TEST_ENV_INIT: Once = Once::new();
-
-    fn load_test_env() {
-        TEST_ENV_INIT.call_once(|| {
-            if let Err(e) = dotenvy::from_filename(".env.test") {
-                tracing::debug!("No .env.test found ({e}), using environment variables");
-            }
-        });
-    }
-
     async fn setup_search_test_db() -> DatabaseConnection {
-        load_test_env();
-        let config = Config::from_env().expect("Failed to load config");
+        let config = Config::from_env()
+            .expect("database integration tests require the isolated environment; run `just test`");
         setup_database(&config)
             .await
             .expect("Failed to setup test db")

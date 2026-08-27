@@ -47,7 +47,8 @@ async fn make_search_service(
         .await
         .expect("Failed to setup test db");
     reset_search_state(&db).await;
-    let mut config = Config::from_env().expect("Failed to load config");
+    let mut config = Config::from_env()
+        .expect("database integration tests require the isolated environment; run `just test`");
     config.meili_url = server.base_url.clone();
     config.meili_master_key = "test-key".to_owned();
     config.vllm_embedding_url = "http://127.0.0.1:9".to_owned();

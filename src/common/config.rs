@@ -1,8 +1,9 @@
-use migration::{Migrator, MigratorTrait as _};
+use super::environment::{validate_database_target, AppEnv, DatabaseOperation, EnvironmentError};
 use regex::Regex;
 use sea_orm::{ConnectOptions, DatabaseConnection};
 use std::env;
 use std::time::Duration;
+use thiserror::Error;
 use tokio::time::sleep;
 
 /// Default page size for all paginated list endpoints.
@@ -22,8 +23,9 @@ const DB_IDLE_TIMEOUT_SECS: u64 = 600;
 const DB_MAX_LIFETIME_SECS: u64 = 1800;
 
 /// Config is a struct that holds the configuration for the application.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
+    pub app_env: AppEnv,
     pub database_url: String,
     pub database_max_connections: u32,
     pub database_min_connections: u32,
@@ -53,20 +55,33 @@ pub struct Config {
     pub vllm_embedding_timeout_secs: u64,
 }
 
-/// `from_env` reads the environment variables and returns a Config struct.
-/// It uses the dotenv crate to load environment variables from a .env file if it exists.
-/// It returns a Result with the Config struct or an error if any of the environment variables are missing.
-impl Config {
-    pub fn from_env() -> Result<Self, env::VarError> {
-        dotenvy::dotenv().ok();
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error(transparent)]
+    Environment(#[from] EnvironmentError),
 
-        let ext_val = env::var("ASSET_ALLOWED_EXTENSIONS")?;
+    #[error("required environment variable {name} is not set")]
+    MissingVariable { name: &'static str },
+}
+
+fn required_var(name: &'static str) -> Result<String, ConfigError> {
+    env::var(name).map_err(|_error| ConfigError::MissingVariable { name })
+}
+
+/// Read configuration from an environment loaded by an explicit entrypoint.
+impl Config {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let app_env = AppEnv::from_env()?;
+        let database_url = required_var("DATABASE_URL")?;
+        validate_database_target(app_env, &database_url, DatabaseOperation::Connect)?;
+        let ext_val = required_var("ASSET_ALLOWED_EXTENSIONS")?;
 
         let asset_allowed_extensions: Vec<String> =
             ext_val.split('|').map(|s| s.to_lowercase()).collect();
 
         Ok(Self {
-            database_url: env::var("DATABASE_URL")?,
+            app_env,
+            database_url,
 
             database_max_connections: env::var("DATABASE_MAX_CONNECTIONS")
                 .map(|s| s.parse::<u32>().unwrap_or(20))
@@ -75,14 +90,14 @@ impl Config {
                 .map(|s| s.parse::<u32>().unwrap_or(5))
                 .unwrap_or(5),
 
-            service_host: env::var("SERVICE_HOST")?,
-            service_port: env::var("SERVICE_PORT")?,
+            service_host: required_var("SERVICE_HOST")?,
+            service_port: required_var("SERVICE_PORT")?,
 
-            assets_public_path: env::var("ASSETS_PUBLIC_PATH")?,
-            assets_public_url: env::var("ASSETS_PUBLIC_URL")?,
+            assets_public_path: required_var("ASSETS_PUBLIC_PATH")?,
+            assets_public_url: required_var("ASSETS_PUBLIC_URL")?,
 
-            assets_private_path: env::var("ASSETS_PRIVATE_PATH")?,
-            assets_private_url: env::var("ASSETS_PRIVATE_URL")?,
+            assets_private_path: required_var("ASSETS_PRIVATE_PATH")?,
+            assets_private_url: required_var("ASSETS_PRIVATE_URL")?,
 
             asset_allowed_extensions_pattern: Regex::new(&format!(r"(?i)^.*\.({ext_val})$"))
                 .unwrap_or_else(|_| {
@@ -93,8 +108,9 @@ impl Config {
 
             asset_allowed_extensions,
 
-            asset_max_size: env::var("ASSET_MAX_SIZE")
-                .map(|s| s.parse::<usize>().unwrap_or(DEFAULT_MAX_FILE_SIZE))?,
+            asset_max_size: required_var("ASSET_MAX_SIZE")?
+                .parse::<usize>()
+                .unwrap_or(DEFAULT_MAX_FILE_SIZE),
 
             cors_origins: env::var("CORS_ORIGINS")
                 .map(|s| s.split(',').map(|o| o.trim().to_owned()).collect())
@@ -136,17 +152,11 @@ pub async fn setup_database(config: &Config) -> Result<DatabaseConnection, sea_o
                 if attempts >= 3 {
                     return Err(err);
                 }
-                eprintln!(
-                    "Postgres not ready yet ({:?}), retrying in 1s… (attempt {}/{})",
-                    err, attempts, 3
-                );
+                eprintln!("Postgres not ready yet, retrying in 1s… (attempt {attempts}/3)");
                 sleep(Duration::from_secs(1)).await;
             }
         }
     };
-
-    // Run pending migrations
-    Migrator::up(&pool, None).await?;
 
     Ok(pool)
 }

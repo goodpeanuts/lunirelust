@@ -145,8 +145,6 @@ pub fn build_app_state(pool: &DatabaseConnection, config: Config) -> AppState {
 
 /// Setup tracing for the application.
 pub fn setup_tracing() {
-    dotenvy::dotenv().ok();
-
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()

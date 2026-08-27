@@ -11,6 +11,7 @@ use sea_orm::{DatabaseConnection, DbErr};
 use tokio_util::sync::CancellationToken;
 
 use crate::common::config::Config;
+use crate::common::environment::AppEnv;
 use crate::domains::crawl::domain::model::{
     CodeResultStatus, CrawlCodeResult, CrawlPageResult, CrawlTask, CrawlTaskDetail,
     EntityAutoCrawlScope, EntityAutoCrawlTaskInput, EntityAutoCrawlType, PageResultStatus,
@@ -278,6 +279,7 @@ impl CrawlTaskRepository for RecordingCrawlTaskRepo {
 fn test_config() -> Config {
     Config {
         database_url: "postgres://example.invalid/test".to_owned(),
+        app_env: AppEnv::Test,
         database_max_connections: 1,
         database_min_connections: 0,
         service_host: "127.0.0.1".to_owned(),

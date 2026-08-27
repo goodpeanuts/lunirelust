@@ -32,8 +32,8 @@ const TEST_RECORD_PREFIX: &str = "AFFTEST-";
 const SERIAL_KEY: i64 = 91_231;
 
 async fn db() -> DatabaseConnection {
-    let _env = dotenvy::from_filename(".env.test");
-    let config = Config::from_env().expect("config");
+    let config = Config::from_env()
+        .expect("database integration tests require the isolated environment; run `just test`");
     setup_database(&config).await.expect("test db")
 }
 

@@ -7,22 +7,7 @@ on: [pull_request, push, workflow_dispatch]
 
 jobs:
   test:
-    name: Test Suite
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: pass
-          POSTGRES_DB: testdb
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U testuser -d testdb"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -30,58 +15,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.92
-
       - name: Configure git for private dependencies
         run: git config --global url."https://x-access-token:${{ secrets.GIT_CREDENTIALS }}@github.com/".insteadOf "https://github.com/"
-
-      # Wait for postgres to be ready
-      - name: Wait for PostgreSQL
-        run: |
-          until pg_isready -h localhost -p 5433 -U testuser; do
-            echo "Waiting for PostgreSQL to be ready..."
-            sleep 2
-          done
-          echo "PostgreSQL is ready!"
-
-      # Run SeaORM migrations to initialize database schema and seed data
-      - name: Run SeaORM Migrations
-        run: |
-          # Show migration status before running
-          echo "Checking migration status..."
-          cargo run -p migration -- status || echo "No migrations table found, will create"
-
-          # Run migrations
-          echo "Running migrations..."
-          cargo run -p migration -- up
-
-          # Show final status
-          echo "Final migration status:"
-          cargo run -p migration -- status
-        env:
-          DATABASE_URL: "postgres://testuser:pass@localhost:5433/testdb"
-
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-nextest
-
-      - name: Run tests
-        run: |
-          cargo nextest run --all-features
-          cargo test --quiet --workspace --doc
-        env:
-          APP_ENV: test
-          DATABASE_URL: "postgres://testuser:pass@localhost:5433/testdb"
-          DATABASE_MAX_CONNECTIONS: 5
-          DATABASE_MIN_CONNECTIONS: 1
-          SERVICE_HOST: 0.0.0.0
-          SERVICE_PORT: 8090
-          RUST_LOG: "debug,sea_orm=debug,tower_http=info,axum::rejection=trace"
-          JWT_SECRET_KEY: "your_jwt_secret_key_mRMNj0ubratwHOakMmfnRRDbnSD6U1kzf9IgPPRqrpk="
-          ASSETS_HOME_PATH: "assets"
-          ASSETS_PUBLIC_PATH: "assets/public"
-          ASSETS_PUBLIC_URL: "/assets/public"
-          ASSETS_PRIVATE_PATH: "assets/private"
-          ASSETS_PRIVATE_URL: "/assets/private"
-          ASSET_MAX_SIZE: "52428800"
-          ASSET_ALLOWED_EXTENSIONS: "jpg|jpeg|png|gif|webp|bmp|svg|mp4|mov|avi|wmv|flv|mkv|mp3|wav|ogg|opus|pdf|doc|docx|ppt|pptx|xls|xlsx|hwp|hwpx|txt|zip"
+          tool: just,cargo-nextest
+      - name: Run isolated test workflow
+        run: just test

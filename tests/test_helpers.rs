@@ -1,8 +1,6 @@
 #![allow(clippy::all)]
 #![allow(dead_code)]
 
-use std::sync::Once;
-
 use tokio::sync::OnceCell;
 
 use axum::{
@@ -14,7 +12,6 @@ use axum::{
     Router,
 };
 
-use dotenvy::from_filename;
 use http_body_util::BodyExt as _;
 
 use lunirelust::{
@@ -30,8 +27,6 @@ use lunirelust::{
 use sea_orm::DatabaseConnection;
 use tower::ServiceExt as _;
 
-static INIT: Once = Once::new();
-
 /// Constants for test client credentials
 /// These are used to authenticate the test client
 pub const TEST_CLIENT_ID: &str = "apitest01";
@@ -40,24 +35,13 @@ pub const TEST_CLIENT_SECRET: &str = "test_password";
 
 pub const TEST_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
 
-/// Helper function to load environment variables from .env.test file.
-/// Falls back to already-set env vars (e.g. CI workflow) when .env.test is absent.
-fn load_test_env() {
-    INIT.call_once(|| {
-        if let Err(e) = from_filename(".env.test") {
-            tracing::debug!("No .env.test found ({e}), using environment variables");
-        }
-
-        // uncomment below for test debugging
-        // use lunirelust::common::bootstrap::setup_tracing;
-        // setup_tracing();
-    });
-}
-
 /// Helper function to set up the test database state
 pub async fn setup_test_db() -> Result<DatabaseConnection, Box<dyn std::error::Error>> {
-    load_test_env();
-    let config = Config::from_env()?;
+    let config = Config::from_env().map_err(|error| {
+        std::io::Error::other(format!(
+            "database integration tests require the isolated test environment; run `just test`: {error}"
+        ))
+    })?;
     let pool = setup_database(&config).await?;
     Ok(pool)
 }
@@ -65,7 +49,8 @@ pub async fn setup_test_db() -> Result<DatabaseConnection, Box<dyn std::error::E
 /// Helper function to create a test router
 pub async fn create_test_router() -> Router {
     let pool = setup_test_db().await.expect("Failed to setup test db");
-    let config = Config::from_env().expect("Failed to load config");
+    let config = Config::from_env()
+        .expect("database integration tests require the isolated environment; run `just test`");
     let state = build_app_state(&pool, config);
     create_router(state)
 }

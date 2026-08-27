@@ -11,67 +11,12 @@ repos:
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
-  - repo: https://github.com/psf/black
-    rev: 22.10.0
-    hooks:
-      - id: black
   - repo: local
     hooks:
-
-      - id: cargo-fmt
-        name: cargo fmt
-        description: Format files with rustfmt.
-        entry: bash -c 'cargo fmt -- --check'
-        language: rust
-        files: \.rs$
-        args: []
-
-      - id: cargo-deny
-        name: cargo deny check
-        description: Check cargo dependencies
-        entry: bash -c 'cargo deny check -d'
-        language: rust
-        files: \.rs$
-        args: []
-
-      - id: typos
-        name: typos
-        description: check typo
-        entry: bash -c 'typos'
-        language: rust
-        files: \.*$
+      - id: project-ci
+        name: project CI
+        description: Run the same isolated checks and tests as CI.
+        entry: just ci
+        language: system
         pass_filenames: false
-
-      - id: cargo-check
-        name: cargo check
-        description: Check the package for errors.
-        entry: bash -c 'cargo check --all'
-        language: rust
-        files: \.rs$
-        pass_filenames: false
-
-      - id: cargo-clippy
-        name: cargo clippy
-        description: Lint rust sources
-        entry: bash -c 'cargo clippy --all-targets --all-features --tests --benches -- -D warnings'
-        language: rust
-        files: \.rs$
-        pass_filenames: false
-
-      - id: cargo-test
-        name: cargo test suite
-        description: prepare test deps and run nextest plus doctests
-        entry: |
-          bash -ceu '
-          trap '"'"'status=$?; docker compose --env-file .env.test down || true; exit "$status"'"'"' EXIT
-          docker compose --env-file .env.test up -d --wait
-          while IFS= read -r line; do
-            export "$line"
-          done < <(docker compose --env-file .env.test config --environment)
-          cargo run -p migration -- up
-          cargo nextest run --all-features
-          cargo test --quiet --workspace --doc
-          '
-        language: rust
-        files: \.rs$
-        pass_filenames: false
+        always_run: true

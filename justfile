@@ -1,77 +1,63 @@
-# 本地开发工作流
-# 依赖：cargo install just, cargo install cargo-watch
+set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# 启动开发基础设施 + 迁移 + 启动后端（热重载）
-dev:
-    docker compose --env-file .env up -d
-    docker compose --env-file .env exec postgres bash -c 'until pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do sleep 0.5; done'
-    cargo run -p migration -- up
-    cargo watch -w src -w Cargo.toml -w Cargo.lock -x "run -F swagger"
+default:
+    @just --list
 
-# 停止开发基础设施
-dev-down:
-    docker compose --env-file .env down
+# Create the private development environment once; never overwrite local choices.
+[private]
+ensure-dev-env:
+    @if [[ ! -f .env ]]; then cp .env.example .env; echo "created .env from .env.example"; fi
+    @chmod 0600 .env
+    @mkdir -p .local/dev/assets/public .local/dev/assets/private
 
-# 下载依赖到 vendor/ 目录（用于 Docker 离线构建）
-vendor:
-    cargo vendor vendor/ > .cargo/config.vendor.toml
-    cat .cargo/config.toml .cargo/config.vendor.toml > .cargo/config.docker.toml
+# Start dev infrastructure, apply forward migrations, and run the backend.
+dev: ensure-dev-env
+    ./scripts/env-run.sh .env ./scripts/workflow.sh dev
 
-# 本地构建全栈（在 dev 基础上加 app 容器）
-build:
-    just vendor
-    docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml up -d --build
+dev-infra: ensure-dev-env
+    ./scripts/env-run.sh .env ./scripts/workflow.sh dev-infra
 
-# 停止构建全栈
-build-down:
-    docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml down
+dev-down: ensure-dev-env
+    ./scripts/env-run.sh .env ./scripts/workflow.sh dev-down
 
-# 运行数据库迁移（up）
-migrate-up:
-    cargo run -p migration -- up
+# Disposable test stack: down -v before and after, migrate, nextest, doctest.
+test:
+    ./scripts/env-run.sh .env.test ./scripts/workflow.sh test
 
-# 运行数据库迁移（down）
-migrate-down:
-    cargo run -p migration -- down
-
-
-
-# 启动测试数据库
 test-db:
-    docker compose --env-file .env.test up -d
-    docker compose --env-file .env.test exec postgres bash -c 'until pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}; do sleep 0.5; done'
+    ./scripts/env-run.sh .env.test ./scripts/workflow.sh test-up
 
-# 停止测试数据库
 test-db-down:
-    docker compose --env-file .env.test down
+    ./scripts/env-run.sh .env.test ./scripts/workflow.sh test-down
 
-# 准备测试环境（启动测试数据库并应用 migration/seed）
-test-prepare: test-db
-    just --dotenv-path .env.test --command cargo run -p migration -- up
-
-# 使用 nextest 运行测试
-test-nextest: test-prepare
-    bash -lc 'set -euo pipefail; trap "just test-db-down" EXIT; just --dotenv-path .env.test --command cargo nextest run --all-features'
-
-# 运行文档测试
-test-doc: test-prepare
-    just --dotenv-path .env.test --command cargo test --quiet --workspace --doc
-
-# 运行完整测试（准备测试环境 + nextest + doctest）
-test: test-nextest test-doc
-
-
-
-# 运行所有 CI 检查
+# Static quality gates; no database is required.
 check:
     cargo check --quiet --workspace --all-targets
     cargo fmt --all -- --check
     cargo clippy --quiet --workspace --all-targets --all-features -- -D warnings -W clippy::all
 
-# 运行完整 CI（check + test）
 ci: check test
 
-# 运行 cargo-deny 和 typos（需额外安装）
+migrate-up: ensure-dev-env
+    ./scripts/env-run.sh .env ./scripts/workflow.sh migrate up
+
+migrate-status: ensure-dev-env
+    ./scripts/env-run.sh .env ./scripts/workflow.sh migrate status
+
+migrate-down: ensure-dev-env
+    ./scripts/env-run.sh .env ./scripts/workflow.sh migrate down
+
+# Local full-stack image build.
+vendor:
+    cargo vendor vendor/ > .cargo/config.vendor.toml
+    cat .cargo/config.toml .cargo/config.vendor.toml > .cargo/config.docker.toml
+
+build: ensure-dev-env vendor
+    ./scripts/env-run.sh .env docker compose --project-name lunirelust-dev --env-file .env -f compose.dev.yml -f docker-compose.build.yml up -d --build
+
+build-down: ensure-dev-env
+    ./scripts/env-run.sh .env docker compose --project-name lunirelust-dev --env-file .env -f compose.dev.yml -f docker-compose.build.yml down --remove-orphans
+
 audit:
     cargo deny check -d
     typos

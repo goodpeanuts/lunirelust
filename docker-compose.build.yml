@@ -1,12 +1,11 @@
 # 本地构建全栈 — 在基础服务上加 vllm + app 容器
 # 使用方式：just build
-# 等效命令：docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# 等效命令：docker compose -p lunirelust-dev --env-file .env -f compose.dev.yml -f docker-compose.build.yml up -d --build
 
 services:
   vllm:
     # Pin the image version so CLI changes in `latest` do not break startup.
     image: vllm/vllm-openai:v0.19.0
-    container_name: ${COMPOSE_PROJECT_NAME}-vllm
     restart: unless-stopped
     command: >
       BAAI/bge-m3
@@ -33,7 +32,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.local
-    container_name: ${COMPOSE_PROJECT_NAME}-app
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,7 +40,7 @@ services:
     env_file:
       - ${DEPLOY_ENV_FILE}
     volumes:
-      - ${ASSETS_DATA_PATH:-./subm/luna/data/assets}:/app/${ASSETS_HOME_PATH:-assets}
+      - ${ASSETS_DATA_PATH}:/app/${ASSETS_HOME_PATH}
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MEILI_URL=http://meilisearch:7700

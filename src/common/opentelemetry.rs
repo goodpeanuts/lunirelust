@@ -32,7 +32,6 @@ fn get_resource() -> Resource {
 // init_traces sets up the OTLP exporter and builds the SdkTracerProvider.
 pub fn init_traces() -> Result<SdkTracerProvider, Box<dyn Error + Send + Sync + 'static>> {
     // Load environment variables from .env file.
-    dotenvy::dotenv().ok();
 
     // Read the OTLP endpoint from environment variable.
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -68,7 +67,6 @@ pub fn init_traces() -> Result<SdkTracerProvider, Box<dyn Error + Send + Sync + 
 pub fn setup_tracing_opentelemetry(
 ) -> Result<SdkTracerProvider, Box<dyn Error + Send + Sync + 'static>> {
     // Load environment variables from .env file.
-    dotenvy::dotenv().ok();
 
     // Configure log level filter from environment or default to info for application and debug for opentelemetry.
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {

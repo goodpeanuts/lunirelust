@@ -5,36 +5,8 @@ permissions:
 
 on: [push, pull_request, workflow_dispatch]
 
-env:
-  CLICOLOR: 1
-
 jobs:
-  spelling:
-    name: Spell Check with Typos
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TERM_COLOR: always
-    steps:
-    - name: Checkout Actions Repository
-      uses: actions/checkout@v4
-    - name: Spell Check Repo
-      uses: crate-ci/typos@v1.34.0
-
-  fmt:
-    name: Rustfmt
-    env:
-      CARGO_TERM_COLOR: always
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.92
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
-  clippy:
-    name: Clippy
+  check:
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -43,7 +15,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.92
-          components: clippy
+          components: rustfmt,clippy
       - name: Configure git for private dependencies
         run: git config --global url."https://x-access-token:${{ secrets.GIT_CREDENTIALS }}@github.com/".insteadOf "https://github.com/"
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Run repository quality gates
+        run: just check
+
+  spelling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.34.0

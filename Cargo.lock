@@ -1725,14 +1725,12 @@ dependencies = [
  "axum",
  "axum-extra",
  "chrono",
- "dotenvy",
  "futures",
  "http-body-util",
  "jsonwebtoken 9.3.1",
  "luneth",
  "md5",
  "meilisearch-sdk",
- "migration",
  "once_cell",
  "opentelemetry",
  "opentelemetry-appender-tracing",
@@ -1753,6 +1751,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
@@ -1874,6 +1873,7 @@ checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 name = "migration"
 version = "1.0.0"
 dependencies = [
+ "lunirelust",
  "sea-orm-migration",
  "tokio",
 ]

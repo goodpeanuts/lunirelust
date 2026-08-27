@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: "no"
+    environment:
+      POSTGRES_USER: luna_test
+      POSTGRES_PASSWORD: luna_test
+      POSTGRES_DB: luna_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luna_test -d luna_test"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.42
+    restart: "no"
+    environment:
+      MEILI_MASTER_KEY: luna_test_master_key
+      MEILI_ENV: development
+    ports:
+      - "127.0.0.1:7701:7700"
+    volumes:
+      - meilisearch-data:/meili_data
+
+volumes:
+  postgres-data:
+  meilisearch-data:
