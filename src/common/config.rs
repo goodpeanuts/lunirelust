@@ -1,6 +1,6 @@
 use super::environment::{validate_database_target, AppEnv, DatabaseOperation, EnvironmentError};
 use regex::Regex;
-use sea_orm::{ConnectOptions, DatabaseConnection};
+use sea_orm::{ConnectOptions, DatabaseConnection, DbErr};
 use std::env;
 use std::time::Duration;
 use thiserror::Error;
@@ -62,6 +62,27 @@ pub enum ConfigError {
 
     #[error("required environment variable {name} is not set")]
     MissingVariable { name: &'static str },
+}
+
+/// Errors raised while preparing a database connection for integration tests.
+#[derive(Debug, Error)]
+pub enum TestDatabaseSetupError {
+    /// Integration tests may only run with the fixed test environment identity.
+    #[error(
+        "database integration tests require APP_ENV=test; got APP_ENV={actual}; run `just test`"
+    )]
+    WrongEnvironment {
+        /// Environment supplied by the caller.
+        actual: AppEnv,
+    },
+
+    /// The configured test database target failed identity validation.
+    #[error(transparent)]
+    Environment(#[from] EnvironmentError),
+
+    /// The validated test database could not be reached.
+    #[error(transparent)]
+    Database(#[from] DbErr),
 }
 
 fn required_var(name: &'static str) -> Result<String, ConfigError> {
@@ -159,4 +180,92 @@ pub async fn setup_database(config: &Config) -> Result<DatabaseConnection, sea_o
     };
 
     Ok(pool)
+}
+
+/// Connect to the database only when the fixed integration-test identity is selected.
+///
+/// This guard deliberately runs before [`setup_database`] so a test invoked outside
+/// `just test` cannot open a development or production database connection, even when
+/// that target is otherwise valid for its declared environment.
+pub async fn setup_test_database(
+    config: &Config,
+) -> Result<DatabaseConnection, TestDatabaseSetupError> {
+    if config.app_env != AppEnv::Test {
+        return Err(TestDatabaseSetupError::WrongEnvironment {
+            actual: config.app_env,
+        });
+    }
+
+    validate_database_target(
+        AppEnv::Test,
+        &config.database_url,
+        DatabaseOperation::Connect,
+    )?;
+
+    setup_database(config)
+        .await
+        .map_err(TestDatabaseSetupError::Database)
+}
+
+#[cfg(test)]
+mod tests {
+    use regex::Regex;
+
+    use super::{setup_test_database, Config, TestDatabaseSetupError, DEFAULT_MAX_FILE_SIZE};
+    use crate::common::environment::AppEnv;
+
+    fn config_for(app_env: AppEnv, database_url: &str) -> Config {
+        Config {
+            app_env,
+            database_url: database_url.to_owned(),
+            database_max_connections: 1,
+            database_min_connections: 0,
+            service_host: "127.0.0.1".to_owned(),
+            service_port: "3000".to_owned(),
+            assets_public_path: "/tmp/public".to_owned(),
+            assets_public_url: "/public".to_owned(),
+            assets_private_path: "/tmp/private".to_owned(),
+            assets_private_url: "/private".to_owned(),
+            asset_allowed_extensions_pattern: Regex::new(r"(?i)^.*\.(jpg|png)$")
+                .expect("test asset extension regex must compile"),
+            asset_allowed_extensions: vec!["jpg".to_owned(), "png".to_owned()],
+            asset_max_size: DEFAULT_MAX_FILE_SIZE,
+            cors_origins: vec![],
+            meili_url: "http://127.0.0.1:7700".to_owned(),
+            meili_master_key: "test-key".to_owned(),
+            vllm_embedding_url: "http://127.0.0.1:8000".to_owned(),
+            vllm_embedding_model: "BAAI/bge-m3".to_owned(),
+            vllm_embedding_timeout_secs: 5,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_setup_rejects_valid_dev_and_prod_identities_before_connecting() {
+        let cases = [
+            (
+                AppEnv::Dev,
+                "postgres://luna_dev:dev-secret@127.0.0.1:5434/luna_dev",
+            ),
+            (
+                AppEnv::Prod,
+                "postgres://luna_user:prod-secret@luna-db:5432/luna_db",
+            ),
+        ];
+
+        for (app_env, database_url) in cases {
+            let error = match setup_test_database(&config_for(app_env, database_url)).await {
+                Ok(_connection) => panic!("integration test guard accepted APP_ENV={app_env}"),
+                Err(error) => error,
+            };
+
+            assert!(matches!(
+                &error,
+                TestDatabaseSetupError::WrongEnvironment { actual } if *actual == app_env
+            ));
+            let message = error.to_string();
+            assert!(message.contains("run `just test`"));
+            assert!(!message.contains("secret"));
+            assert!(!message.contains(database_url));
+        }
+    }
 }

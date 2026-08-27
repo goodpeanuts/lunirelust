@@ -12,7 +12,7 @@
 
 use std::collections::HashSet;
 
-use lunirelust::common::config::{setup_database, Config};
+use lunirelust::common::config::{setup_test_database, Config};
 use lunirelust::domains::crawl::{CrawlRepo, EntityAutoCrawlType, EntityProgressRepository as _};
 use sea_orm::{
     ConnectionTrait as _, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
@@ -28,7 +28,7 @@ const SERIAL_KEY: i64 = 91_117;
 async fn db() -> DatabaseConnection {
     let config = Config::from_env()
         .expect("database integration tests require the isolated environment; run `just test`");
-    setup_database(&config).await.expect("test db")
+    setup_test_database(&config).await.expect("test db")
 }
 
 /// Hold a transaction-scoped advisory lock for the test's duration, serializing

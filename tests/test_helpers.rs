@@ -18,7 +18,7 @@ use lunirelust::{
     app::create_router,
     common::{
         bootstrap::build_app_state,
-        config::{setup_database, Config},
+        config::{setup_test_database, Config},
         dto::RestApiResponse,
         jwt::{AuthBody, AuthPayload},
     },
@@ -42,7 +42,7 @@ pub async fn setup_test_db() -> Result<DatabaseConnection, Box<dyn std::error::E
             "database integration tests require the isolated test environment; run `just test`: {error}"
         ))
     })?;
-    let pool = setup_database(&config).await?;
+    let pool = setup_test_database(&config).await?;
     Ok(pool)
 }
 

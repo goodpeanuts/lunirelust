@@ -571,13 +571,13 @@ mod tests {
 
     use sea_orm::{ActiveModelTrait as _, DatabaseConnection, Set};
 
-    use crate::common::config::{setup_database, Config};
+    use crate::common::config::{setup_test_database, Config};
     use crate::entities::record;
 
     async fn setup_search_test_db() -> DatabaseConnection {
         let config = Config::from_env()
             .expect("database integration tests require the isolated environment; run `just test`");
-        setup_database(&config)
+        setup_test_database(&config)
             .await
             .expect("Failed to setup test db")
     }

@@ -14,7 +14,7 @@
 //! `user_record_interaction`), so each holds a transaction-scoped advisory lock
 //! on a dedicated connection to serialize across nextest's per-test processes.
 
-use lunirelust::common::config::{setup_database, Config};
+use lunirelust::common::config::{setup_test_database, Config};
 use lunirelust::domains::luna::dto::{PaginationQuery, SearchIdolDto};
 use lunirelust::domains::luna::{IdolAffinityRepository as _, IdolRepo};
 use sea_orm::{
@@ -34,7 +34,7 @@ const SERIAL_KEY: i64 = 91_231;
 async fn db() -> DatabaseConnection {
     let config = Config::from_env()
         .expect("database integration tests require the isolated environment; run `just test`");
-    setup_database(&config).await.expect("test db")
+    setup_test_database(&config).await.expect("test db")
 }
 
 /// Hold a transaction-scoped advisory lock for the test's duration, serializing
