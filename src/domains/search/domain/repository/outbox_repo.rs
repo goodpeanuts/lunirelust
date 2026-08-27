@@ -48,8 +48,17 @@ pub trait OutboxRepository: Send + Sync {
         lease_timeout_secs: i64,
     ) -> Result<Vec<OutboxEvent>, sea_orm::DbErr>;
 
-    /// Mark an event as processed.
-    async fn mark_processed(db: &DatabaseConnection, event_id: i64) -> Result<(), sea_orm::DbErr>;
+    /// Mark multiple events as processed in one statement.
+    async fn mark_processed_batch(
+        db: &DatabaseConnection,
+        event_ids: &[i64],
+    ) -> Result<u64, sea_orm::DbErr>;
+
+    /// Mark stale pending upserts as processed using the tombstone table.
+    ///
+    /// Delete events and zero-version fan-out events are deliberately
+    /// excluded because they still need to reach the event processor.
+    async fn mark_stale_upserts_processed(db: &DatabaseConnection) -> Result<u64, sea_orm::DbErr>;
 
     /// Release a claim on an event (clear `claimed_by` and `claimed_at`).
     async fn release_claim(db: &DatabaseConnection, event_id: i64) -> Result<(), sea_orm::DbErr>;

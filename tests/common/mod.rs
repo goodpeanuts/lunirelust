@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value as JsonValue};
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use lunirelust::domains::search::constants::{FILTERABLE_ATTRIBUTES, SEARCHABLE_ATTRIBUTES};
@@ -27,6 +29,7 @@ struct FakeMeiliState {
     next_task_uid: Arc<AtomicU32>,
     embedder_patch_requests: Arc<AtomicUsize>,
     keyword_search_requests: Arc<AtomicUsize>,
+    documents: Arc<Mutex<HashMap<String, JsonValue>>>,
 }
 
 pub struct FakeMeiliServer {
@@ -60,6 +63,7 @@ pub async fn spawn_fake_meili_server(
         next_task_uid: Arc::new(AtomicU32::new(100)),
         embedder_patch_requests: Arc::new(AtomicUsize::new(0)),
         keyword_search_requests: Arc::new(AtomicUsize::new(0)),
+        documents: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = Router::new()
@@ -73,6 +77,10 @@ pub async fn spawn_fake_meili_server(
         .route(
             "/indexes/{index_uid}/documents/fetch",
             post(post_documents_fetch),
+        )
+        .route(
+            "/indexes/{index_uid}/documents/delete-batch",
+            post(delete_documents),
         )
         .route(
             "/indexes/{index_uid}/documents",
@@ -153,11 +161,10 @@ async fn patch_settings(State(state): State<FakeMeiliState>) -> (StatusCode, Jso
     }
 }
 
-async fn get_stats() -> Json<JsonValue> {
-    // Report an "empty" index so startup follows the full-sync path after
-    // recovering from the embedder setup failure.
+async fn get_stats(State(state): State<FakeMeiliState>) -> Json<JsonValue> {
+    let document_count = state.documents.lock().await.len();
     Json(json!({
-        "numberOfDocuments": 1,
+        "numberOfDocuments": document_count,
         "numberOfEmbeddedDocuments": 0,
         "numberOfEmbeddings": 0,
         "rawDocumentDbSize": 0,
@@ -167,16 +174,56 @@ async fn get_stats() -> Json<JsonValue> {
     }))
 }
 
-async fn post_documents_fetch() -> Json<JsonValue> {
-    // Existing documents fetches are empty in this fake setup; the startup
-    // tests only care that Meili accepts writes and later serves keyword hits.
+async fn post_documents_fetch(
+    State(state): State<FakeMeiliState>,
+    Json(body): Json<JsonValue>,
+) -> Json<JsonValue> {
+    let requested_entity_type = body
+        .get("filter")
+        .and_then(JsonValue::as_str)
+        .and_then(|filter| filter.split('"').nth(1));
+    let offset = body
+        .get("offset")
+        .and_then(JsonValue::as_u64)
+        .unwrap_or_default() as usize;
+    let limit = body.get("limit").and_then(JsonValue::as_u64).unwrap_or(20) as usize;
+
+    let documents = state.documents.lock().await;
+    let mut matching: Vec<JsonValue> = documents
+        .values()
+        .filter(|document| {
+            requested_entity_type.is_none_or(|entity_type| {
+                document.get("entity_type").and_then(JsonValue::as_str) == Some(entity_type)
+            })
+        })
+        .cloned()
+        .collect();
+    matching.sort_by(|left, right| {
+        left.get("id")
+            .and_then(JsonValue::as_str)
+            .cmp(&right.get("id").and_then(JsonValue::as_str))
+    });
+    let total = matching.len();
+    let results: Vec<JsonValue> = matching.into_iter().skip(offset).take(limit).collect();
+
     Json(json!({
-        "results": [],
-        "total": 0
+        "results": results,
+        "total": total
     }))
 }
 
-async fn post_documents(State(state): State<FakeMeiliState>) -> (StatusCode, Json<JsonValue>) {
+async fn post_documents(
+    State(state): State<FakeMeiliState>,
+    Json(body): Json<JsonValue>,
+) -> (StatusCode, Json<JsonValue>) {
+    if let Some(documents) = body.as_array() {
+        let mut stored = state.documents.lock().await;
+        for document in documents {
+            if let Some(id) = document.get("id").and_then(JsonValue::as_str) {
+                stored.insert(id.to_owned(), document.clone());
+            }
+        }
+    }
     let task_uid = state.next_task_uid.fetch_add(1, Ordering::Relaxed);
     (
         StatusCode::ACCEPTED,
@@ -190,7 +237,27 @@ async fn post_documents(State(state): State<FakeMeiliState>) -> (StatusCode, Jso
     )
 }
 
-async fn delete_document(State(state): State<FakeMeiliState>) -> (StatusCode, Json<JsonValue>) {
+async fn delete_document(
+    State(state): State<FakeMeiliState>,
+    Path(doc_id): Path<String>,
+) -> (StatusCode, Json<JsonValue>) {
+    state.documents.lock().await.remove(&doc_id);
+    accepted_delete_task(&state)
+}
+
+async fn delete_documents(
+    State(state): State<FakeMeiliState>,
+    Json(doc_ids): Json<Vec<String>>,
+) -> (StatusCode, Json<JsonValue>) {
+    let mut documents = state.documents.lock().await;
+    for doc_id in doc_ids {
+        documents.remove(&doc_id);
+    }
+    drop(documents);
+    accepted_delete_task(&state)
+}
+
+fn accepted_delete_task(state: &FakeMeiliState) -> (StatusCode, Json<JsonValue>) {
     let task_uid = state.next_task_uid.fetch_add(1, Ordering::Relaxed);
     (
         StatusCode::ACCEPTED,

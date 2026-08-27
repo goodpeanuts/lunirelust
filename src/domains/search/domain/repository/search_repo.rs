@@ -13,16 +13,16 @@ pub trait SearchRepository: Send + Sync {
     /// Check if `MeiliSearch` is healthy.
     async fn health_check(&self) -> bool;
 
-    /// Upsert a single document into the index.
-    async fn upsert_document(
-        &self,
-        doc: &SearchDocument,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
     /// Delete a document from the index by its document ID.
     async fn delete_document(
         &self,
         doc_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Delete multiple documents in one task.
+    async fn batch_delete(
+        &self,
+        doc_ids: &[String],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Batch upsert multiple documents.

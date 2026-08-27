@@ -1,7 +1,6 @@
 //! `PostgreSQL` implementation of the `OutboxRepository` trait.
 
 use async_trait::async_trait;
-use chrono::{FixedOffset, Utc};
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, ConnectionTrait as _, DatabaseBackend,
     DatabaseConnection, EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _,
@@ -11,10 +10,6 @@ use serde_json;
 
 use crate::domains::search::domain::repository::outbox_repo::{OutboxEvent, OutboxRepository};
 use crate::entities::search_sync_events;
-
-fn now_with_tz() -> chrono::DateTime<FixedOffset> {
-    Utc::now().with_timezone(&FixedOffset::east_opt(0).expect("valid UTC+0 offset"))
-}
 
 /// PostgreSQL-backed implementation of `OutboxRepository`.
 /// Uses raw SQL for `FOR UPDATE SKIP LOCKED` claim logic.
@@ -108,18 +103,53 @@ impl OutboxRepository for OutboxRepo {
             .collect())
     }
 
-    async fn mark_processed(db: &DatabaseConnection, event_id: i64) -> Result<(), sea_orm::DbErr> {
-        let entity = search_sync_events::Entity::find_by_id(event_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| sea_orm::DbErr::Custom(format!("Event {event_id} not found")))?;
+    async fn mark_processed_batch(
+        db: &DatabaseConnection,
+        event_ids: &[i64],
+    ) -> Result<u64, sea_orm::DbErr> {
+        if event_ids.is_empty() {
+            return Ok(0);
+        }
 
-        let mut active: search_sync_events::ActiveModel = entity.into();
-        active.processed_at = Set(Some(now_with_tz()));
-        active.claimed_by = Set(None);
-        active.claimed_at = Set(None);
-        active.update(db).await?;
-        Ok(())
+        let placeholders = (1..=event_ids.len())
+            .map(|index| format!("{}{}", '$', index))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "UPDATE search_sync_events
+             SET processed_at = NOW(), claimed_by = NULL, claimed_at = NULL
+             WHERE id IN ({placeholders})"
+        );
+        let values: Vec<sea_orm::Value> = event_ids.iter().copied().map(Into::into).collect();
+        let result = db
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                sql,
+                values,
+            ))
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn mark_stale_upserts_processed(db: &DatabaseConnection) -> Result<u64, sea_orm::DbErr> {
+        let sql = r#"
+            UPDATE search_sync_events AS event
+            SET processed_at = NOW(), claimed_by = NULL, claimed_at = NULL
+            FROM search_document_versions AS version
+            WHERE event.processed_at IS NULL
+              AND event.event_type = 'upsert'
+              AND event.entity_version > 0
+              AND version.entity_type = event.entity_type
+              AND version.entity_id = event.entity_id
+              AND (
+                  version.is_deleted = TRUE
+                  OR event.entity_version < version.last_version
+              )
+            "#;
+        let result = db
+            .execute(Statement::from_string(DatabaseBackend::Postgres, sql))
+            .await?;
+        Ok(result.rows_affected())
     }
 
     async fn release_claim(db: &DatabaseConnection, event_id: i64) -> Result<(), sea_orm::DbErr> {

@@ -26,6 +26,12 @@ pub trait TombstoneRepository: Send + Sync {
         version: i64,
     ) -> Result<(), sea_orm::DbErr>;
 
+    /// Upsert multiple non-deleted version entries in one statement.
+    async fn upsert_versions_batch<C: ConnectionTrait + Send>(
+        db: &C,
+        versions: &[(String, String, i64)],
+    ) -> Result<(), sea_orm::DbErr>;
+
     /// Get the current version status for an entity.
     async fn get_version(
         db: &DatabaseConnection,

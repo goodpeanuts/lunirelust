@@ -1,4 +1,4 @@
-//! `IndexerService`: background task that consumes outbox events and syncs to `MeiliSearch`.
+//! Background indexer that drains database outbox events into the search engine.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -14,51 +14,36 @@ use crate::domains::search::infra::meilisearch::meilisearch_repo::MeiliSearchRep
 use crate::domains::search::infra::outbox_repo_impl::OutboxRepo;
 use crate::domains::search::SearchEntityType;
 
-use super::event_processor::process_event;
+use super::event_processor::{process_event_batch, BatchProcessOutcome};
 use super::full_sync;
-use super::reconciliation::{backfill_missing_vectors, reconcile_counts};
+use super::reconciliation::{backfill_missing_vectors, reconcile_index};
 
-/// Interval between outbox polling cycles.
 const POLL_INTERVAL_SECS: u64 = 1;
-/// Maximum number of events claimed per polling cycle.
 const CLAIM_BATCH_SIZE: i64 = 50;
-/// Duration after which a claimed event lease expires and can be reclaimed.
-const LEASE_TIMEOUT_SECS: i64 = 300; // 5 minutes
-/// Interval between periodic PostgreSQL-vs-MeiliSearch reconciliation checks.
-const RECONCILIATION_INTERVAL_SECS: u64 = 3600; // 1 hour
+const LEASE_TIMEOUT_SECS: i64 = 300;
+const RECONCILIATION_INTERVAL_SECS: u64 = 3600;
 
 /// Log and ignore a best-effort operation result.
 pub(super) fn ignore_result<T, E: std::fmt::Display>(result: Result<T, E>, label: &str) {
-    if let Err(e) = result {
-        tracing::debug!("{}: {}", label, e);
+    if let Err(error) = result {
+        tracing::debug!("{}: {}", label, error);
     }
 }
 
-/// Wrap raw embedding vectors into `MeiliSearch`'s embedder-keyed format:
-/// `{"default": [0.1, 0.2, ...]}`.
+/// Wrap raw embedding vectors in the search engine's embedder-keyed format.
 pub(super) fn wrap_vectors(vectors: Option<Vec<f32>>) -> Option<serde_json::Value> {
-    vectors.map(|v| {
+    vectors.map(|vector| {
         serde_json::json!({
-            "default": v
+            "default": vector
         })
     })
 }
 
-/// Background indexer service.
-///
-/// On startup, initializes the `MeiliSearch` index, runs a full sync if the
-/// index is empty, then enters a polling loop that consumes outbox events.
-/// Periodically reconciles `PostgreSQL` and `MeiliSearch` document counts.
 pub struct IndexerService {
-    /// `PostgreSQL` connection for event processing and full sync.
     db: DatabaseConnection,
-    /// Application configuration.
     config: Config,
-    /// `MeiliSearch` repository for document operations.
     search_repo: Arc<MeiliSearchRepo>,
-    /// Embedding service for vector generation during indexing.
     embedding_service: Arc<EmbeddingService>,
-    /// Shared readiness flag — set to `true` once the index is populated and backlog is drained.
     meili_ready: Arc<AtomicBool>,
 }
 
@@ -93,12 +78,8 @@ impl IndexerService {
     }
 }
 
-/// Run the one-time startup sync sequence:
-/// 1. Check `MeiliSearch` health
-/// 2. Initialize index settings
-/// 3. Probe embedding service
-/// 4. Full sync if index is empty, otherwise reconcile counts
-/// 5. Drain pending outbox events
+/// Startup order is deliberately strict:
+/// initialize -> prune stale events -> drain outbox -> repair IDs -> ready.
 async fn run_startup_sync(
     db: &DatabaseConnection,
     _config: &Config,
@@ -106,90 +87,116 @@ async fn run_startup_sync(
     embedding_service: &Arc<EmbeddingService>,
     meili_ready: &Arc<AtomicBool>,
 ) {
-    tracing::info!("Starting search index startup sync...");
     let startup_start = std::time::Instant::now();
+    meili_ready.store(false, Ordering::Relaxed);
+    tracing::info!("Starting search index startup sync");
 
     if !search_repo.health_check().await {
         tracing::warn!("MeiliSearch is not available. Search will use SQL fallback.");
         return;
     }
-    tracing::info!(
-        elapsed_ms = startup_start.elapsed().as_millis() as u64,
-        "Startup: MeiliSearch health check passed"
-    );
-
-    if let Err(e) = search_repo.init_index().await {
-        tracing::error!("Failed to initialize MeiliSearch index: {}", e);
+    if let Err(error) = search_repo.init_index().await {
+        tracing::error!("Failed to initialize MeiliSearch index: {error}");
         return;
     }
-    tracing::info!(
-        elapsed_ms = startup_start.elapsed().as_millis() as u64,
-        "Startup: index initialized"
-    );
 
-    // Probe embedding service health before full sync so that initial
-    // documents can include vectors when vLLM is reachable.
     embedding_service.check_health().await;
+    if !prepare_index(db, search_repo, embedding_service).await {
+        tracing::warn!("Search index startup repair failed; keeping SQL fallback active");
+        return;
+    }
+
+    meili_ready.store(true, Ordering::Relaxed);
     tracing::info!(
         elapsed_ms = startup_start.elapsed().as_millis() as u64,
-        embedding_available = embedding_service.is_available(),
-        "Startup: embedding service probed"
+        "Search index startup sync complete. MeiliSearch ready."
     );
+}
 
-    let doc_count = search_repo
-        .get_document_count(SearchEntityType::Record)
-        .await
-        .unwrap_or(0);
-    if doc_count == 0 {
-        tracing::info!("Empty index detected, running full sync...");
-        if let Err(e) = full_sync::run_full_sync(db, search_repo, embedding_service).await {
-            tracing::error!("Full sync failed: {}", e);
-            return;
-        }
-        tracing::info!(
-            elapsed_ms = startup_start.elapsed().as_millis() as u64,
-            "Startup: full sync completed"
-        );
-    } else {
-        // Non-empty index — verify completeness by comparing PostgreSQL counts.
-        // If any entity type is missing documents, run full sync to repair.
-        let reconcile_ok = reconcile_counts(db, search_repo, embedding_service).await;
-        if !reconcile_ok {
-            tracing::warn!("Reconciliation failed, keeping SQL fallback active");
-            return;
-        }
-        tracing::info!(
-            elapsed_ms = startup_start.elapsed().as_millis() as u64,
-            "Startup: reconciliation check passed"
-        );
+/// Make a healthy index exact before exposing it to search traffic.
+async fn prepare_index(
+    db: &DatabaseConnection,
+    search_repo: &Arc<MeiliSearchRepo>,
+    embedding_service: &Arc<EmbeddingService>,
+) -> bool {
+    if !prune_stale_events(db).await {
+        return false;
+    }
+    if !process_pending_events(db, search_repo, embedding_service).await {
+        return false;
     }
 
-    // Process pending outbox events
-    let pending = OutboxRepo::count_pending(db).await.unwrap_or(0);
+    let empty = match is_index_empty(search_repo).await {
+        Ok(empty) => empty,
+        Err(error) => {
+            tracing::error!("Failed to inspect MeiliSearch index: {error}");
+            return false;
+        }
+    };
+    if empty {
+        tracing::info!("Empty index detected; running batched full sync");
+        if let Err(error) = full_sync::run_full_sync(db, search_repo, embedding_service).await {
+            tracing::error!("Full sync failed: {error}");
+            return false;
+        }
+    }
+
+    if !reconcile_index(db, search_repo, embedding_service).await {
+        return false;
+    }
+
+    // Writes may have arrived while reconciliation was running. Drain once
+    // more, then re-verify before declaring the index ready.
+    let pending = OutboxRepo::count_pending(db).await.unwrap_or(-1);
     if pending > 0 {
-        tracing::info!(pending, "Startup: draining pending outbox events");
-        meili_ready.store(false, Ordering::Relaxed);
-        process_pending_events(db, search_repo, embedding_service).await;
+        tracing::info!(
+            pending,
+            "Events arrived during repair; draining before final verification"
+        );
+        if !prune_stale_events(db).await
+            || !process_pending_events(db, search_repo, embedding_service).await
+            || !reconcile_index(db, search_repo, embedding_service).await
+        {
+            return false;
+        }
     }
 
-    let remaining = OutboxRepo::count_pending(db).await.unwrap_or(0);
-    if remaining == 0 {
-        tracing::info!(
-            elapsed_ms = startup_start.elapsed().as_millis() as u64,
-            remaining_pending = remaining,
-            "Search index startup sync complete. MeiliSearch ready."
-        );
-        meili_ready.store(true, Ordering::Relaxed);
+    matches!(OutboxRepo::count_pending(db).await, Ok(0))
+}
+
+async fn is_index_empty(
+    search_repo: &Arc<MeiliSearchRepo>,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    for &entity_type in SearchEntityType::ALL {
+        if search_repo.get_document_count(entity_type).await? > 0 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+async fn prune_stale_events(db: &DatabaseConnection) -> bool {
+    match OutboxRepo::mark_stale_upserts_processed(db).await {
+        Ok(pruned) => {
+            if pruned > 0 {
+                tracing::info!(pruned, "Marked stale outbox upserts as processed");
+            }
+            true
+        }
+        Err(error) => {
+            tracing::error!("Failed to prune stale outbox events: {error}");
+            false
+        }
     }
 }
 
-/// Claim and process pending outbox events in a tight loop until none remain.
-/// Used during startup to drain the backlog before enabling `MeiliSearch`.
+/// Drain the current backlog. A failed batch stops the tight startup loop so a
+/// poison event cannot spin indefinitely while readiness remains false.
 async fn process_pending_events(
     db: &DatabaseConnection,
     search_repo: &Arc<MeiliSearchRepo>,
     embedding_service: &Arc<EmbeddingService>,
-) {
+) -> bool {
     loop {
         let events = match OutboxRepo::claim_pending(
             db,
@@ -200,35 +207,58 @@ async fn process_pending_events(
         .await
         {
             Ok(events) => events,
-            Err(e) => {
-                tracing::error!("Failed to claim events: {}", e);
-                break;
+            Err(error) => {
+                tracing::error!("Failed to claim startup events: {error}");
+                return false;
             }
         };
         if events.is_empty() {
-            break;
+            return true;
         }
-        for event in &events {
-            if let Err(e) = process_event(db, event, search_repo, embedding_service).await {
-                tracing::error!("Failed to process event {}: {}", event.id, e);
-                ignore_result(
-                    OutboxRepo::release_claim(db, event.id).await,
-                    "release_claim",
-                );
-                continue;
-            }
-            ignore_result(
-                OutboxRepo::mark_processed(db, event.id).await,
-                "mark_processed",
-            );
+
+        let start = std::time::Instant::now();
+        let outcome = process_event_batch(db, &events, search_repo, embedding_service).await;
+        let ok = finish_claimed_batch(db, &outcome).await;
+        tracing::info!(
+            claimed = events.len(),
+            processed = outcome.processed_ids.len(),
+            failed = outcome.failures.len(),
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "Startup outbox batch processed"
+        );
+        if !ok {
+            return false;
         }
     }
 }
 
-/// Main indexer loop: polls for outbox events, handles `MeiliSearch` recovery,
-/// embedding service recovery, and periodic reconciliation.
+async fn finish_claimed_batch(db: &DatabaseConnection, outcome: &BatchProcessOutcome) -> bool {
+    if let Err(error) = OutboxRepo::mark_processed_batch(db, &outcome.processed_ids).await {
+        tracing::error!("Failed to mark outbox batch processed: {error}");
+        for event_id in outcome
+            .processed_ids
+            .iter()
+            .chain(outcome.failures.iter().map(|(event_id, _)| event_id))
+        {
+            ignore_result(
+                OutboxRepo::release_claim(db, *event_id).await,
+                "release_claim_after_mark_failure",
+            );
+        }
+        return false;
+    }
+
+    for (event_id, message) in &outcome.failures {
+        tracing::error!(event_id, "Failed to process outbox event: {message}");
+        ignore_result(
+            OutboxRepo::release_claim(db, *event_id).await,
+            "release_claim",
+        );
+    }
+    outcome.failures.is_empty()
+}
+
 #[expect(clippy::infinite_loop)]
-#[expect(clippy::too_many_lines)]
 async fn run_indexer_loop(
     db: &DatabaseConnection,
     _config: &Config,
@@ -237,65 +267,50 @@ async fn run_indexer_loop(
     meili_ready: &Arc<AtomicBool>,
 ) {
     let mut reconciliation_timer = 0u64;
-    // If the startup sync already completed successfully, meili_ready is true
-    // and we don't need to re-run full sync. Only re-run if Meili was down
-    // during startup (meili_ready=false) or went down and came back.
-    let mut full_sync_done = meili_ready.load(Ordering::Relaxed);
+    let mut index_prepared = meili_ready.load(Ordering::Relaxed);
     let mut embedding_was_available = embedding_service.is_available();
-    // On first loop iteration, backfill vectors if embedding is available but
-    // the index was populated by a prior run (possibly without vLLM). This
-    // covers the common restart case where vLLM is healthy from the start.
     let mut startup_backfill_done = false;
 
     loop {
         let loop_start = std::time::Instant::now();
 
         if !search_repo.health_check().await {
-            if meili_ready.load(Ordering::Relaxed) {
+            if meili_ready.swap(false, Ordering::Relaxed) {
                 tracing::warn!("MeiliSearch became unavailable");
-                meili_ready.store(false, Ordering::Relaxed);
             }
-            full_sync_done = false;
+            index_prepared = false;
             sleep(Duration::from_secs(5)).await;
             continue;
         }
 
-        // Initialize and repopulate the index if it hasn't been done yet
-        // (covers the case where Meili was unavailable during startup)
-        if !full_sync_done {
-            if let Err(e) = search_repo.init_index().await {
-                tracing::error!("Failed to initialize MeiliSearch index: {}", e);
+        embedding_service.check_health().await;
+        if !index_prepared {
+            meili_ready.store(false, Ordering::Relaxed);
+            if let Err(error) = search_repo.init_index().await {
+                tracing::error!("Failed to initialize MeiliSearch index: {error}");
                 sleep(Duration::from_secs(5)).await;
                 continue;
             }
-            tracing::info!("Running full sync in indexer loop...");
-            if let Err(e) = full_sync::run_full_sync(db, search_repo, embedding_service).await {
-                tracing::error!("Full sync failed: {}", e);
-                // Do NOT set full_sync_done — retry on next iteration.
-                // The index may be partially written, but run_full_sync is
-                // idempotent (it overwrites all documents and tombstones).
+            if !prepare_index(db, search_repo, embedding_service).await {
                 sleep(Duration::from_secs(30)).await;
                 continue;
             }
-            full_sync_done = true;
+            index_prepared = true;
+            meili_ready.store(true, Ordering::Relaxed);
+            tracing::info!("MeiliSearch recovery complete");
         }
 
-        embedding_service.check_health().await;
-
-        // Detect vLLM recovery → backfill documents missing vectors
         let embedding_now_available = embedding_service.is_available();
         if embedding_now_available && !embedding_was_available {
-            tracing::info!("vLLM embedding service recovered, starting vector backfill...");
+            tracing::info!("Embedding service recovered; starting vector backfill");
             backfill_missing_vectors(search_repo, embedding_service).await;
         }
-        // One-time startup backfill: if embedding is healthy and the index
-        // already existed, backfill any documents that were indexed without
-        // vectors during a prior run when vLLM was unavailable.
-        if !startup_backfill_done && full_sync_done && embedding_now_available {
+        if !startup_backfill_done && embedding_now_available {
             backfill_missing_vectors(search_repo, embedding_service).await;
             startup_backfill_done = true;
         }
         embedding_was_available = embedding_now_available;
+
         ignore_result(
             OutboxRepo::reclaim_expired_claims(db, LEASE_TIMEOUT_SECS).await,
             "reclaim_expired_claims",
@@ -305,61 +320,42 @@ async fn run_indexer_loop(
             .await
         {
             Ok(events) if !events.is_empty() => {
-                let batch_size = events.len();
-                for event in &events {
-                    match process_event(db, event, search_repo, embedding_service).await {
-                        Ok(()) => {
-                            ignore_result(
-                                OutboxRepo::mark_processed(db, event.id).await,
-                                "mark_processed",
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                event_id = event.id,
-                                entity_type = %event.entity_type,
-                                entity_id = %event.entity_id,
-                                "Failed to process event: {e}"
-                            );
-                            ignore_result(
-                                OutboxRepo::release_claim(db, event.id).await,
-                                "release_claim",
-                            );
-                        }
-                    }
+                let outcome =
+                    process_event_batch(db, &events, search_repo, embedding_service).await;
+                if !finish_claimed_batch(db, &outcome).await {
+                    meili_ready.store(false, Ordering::Relaxed);
+                    index_prepared = false;
                 }
                 let pending = OutboxRepo::count_pending(db).await.unwrap_or(-1);
                 tracing::info!(
-                    processed = batch_size,
+                    claimed = events.len(),
+                    processed = outcome.processed_ids.len(),
+                    failed = outcome.failures.len(),
                     pending,
                     elapsed_ms = loop_start.elapsed().as_millis() as u64,
                     "Indexer batch processed"
                 );
-                if !meili_ready.load(Ordering::Relaxed) && pending == 0 {
-                    tracing::info!("Outbox backlog drained. MeiliSearch ready.");
-                    meili_ready.store(true, Ordering::Relaxed);
-                }
             }
-            Ok(_) => {
-                if !meili_ready.load(Ordering::Relaxed) {
-                    let pending = OutboxRepo::count_pending(db).await.unwrap_or(0);
-                    if pending == 0 {
-                        meili_ready.store(true, Ordering::Relaxed);
-                    }
-                }
-            }
-            Err(e) => tracing::error!("Failed to claim events: {}", e),
+            Ok(_) => {}
+            Err(error) => tracing::error!("Failed to claim events: {error}"),
         }
 
         reconciliation_timer += POLL_INTERVAL_SECS;
         if reconciliation_timer >= RECONCILIATION_INTERVAL_SECS {
             reconciliation_timer = 0;
-            tracing::info!("Running periodic reconciliation...");
-            // Compare PostgreSQL vs MeiliSearch counts to detect data loss
-            reconcile_counts(db, search_repo, embedding_service).await;
-            // Periodically backfill missing vectors when embedding is available
-            if embedding_service.is_available() {
-                backfill_missing_vectors(search_repo, embedding_service).await;
+            let pending = OutboxRepo::count_pending(db).await.unwrap_or(-1);
+            if pending == 0 {
+                tracing::info!("Running periodic search reconciliation");
+                if !prune_stale_events(db).await
+                    || !reconcile_index(db, search_repo, embedding_service).await
+                {
+                    meili_ready.store(false, Ordering::Relaxed);
+                    index_prepared = false;
+                } else if embedding_service.is_available() {
+                    backfill_missing_vectors(search_repo, embedding_service).await;
+                }
+            } else {
+                tracing::info!(pending, "Skipping reconciliation while outbox is not empty");
             }
         }
 

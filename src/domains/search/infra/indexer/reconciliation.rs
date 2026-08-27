@@ -1,240 +1,161 @@
-//! Reconciliation: detect and repair divergence between `PostgreSQL` and `MeiliSearch`.
-//!
-//! Includes count comparison, ghost document removal, and vector backfill.
+//! Reconciliation of primary-database and search-engine entity ID sets.
 
-use std::str::FromStr as _;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use sea_orm::{DatabaseConnection, EntityTrait as _, PaginatorTrait as _, QuerySelect as _};
+use sea_orm::DatabaseConnection;
 
 use crate::domains::search::domain::repository::search_repo::SearchRepository as _;
+use crate::domains::search::domain::repository::tombstone_repo::TombstoneRepository as _;
 use crate::domains::search::infra::embedding::embedding_service::EmbeddingService;
 use crate::domains::search::infra::meilisearch::meilisearch_repo::MeiliSearchRepo;
+use crate::domains::search::infra::tombstone_repo_impl::TombstoneRepo;
 use crate::domains::search::SearchEntityType;
 
-use super::full_sync::run_full_sync;
-use super::indexer_service::{ignore_result, wrap_vectors};
+use super::document_builder::{build_documents_for_ids, fetch_entity_ids};
+use super::full_sync::{add_embeddings, SYNC_BATCH_SIZE};
+use super::indexer_service::wrap_vectors;
 
-/// Check `PostgreSQL` vs `MeiliSearch` document counts and repair divergences.
-///
-/// When `MeiliSearch` has fewer documents (pg > meili), run a full sync to
-/// upsert missing documents. When `MeiliSearch` has more (meili > pg), fetch
-/// entity IDs from both sides and delete ghost documents from `MeiliSearch`.
-pub(super) async fn reconcile_counts(
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+/// Repair only missing and ghost documents, then verify every entity ID set.
+pub(super) async fn reconcile_index(
     db: &DatabaseConnection,
     search_repo: &Arc<MeiliSearchRepo>,
     embedding_service: &Arc<EmbeddingService>,
 ) -> bool {
-    use crate::entities::{director, genre, idol, label, record, series, studio};
+    let start = std::time::Instant::now();
+    let repair_version = chrono::Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() * 1_000_000);
 
-    // Reconcile records
-    let pg_record_count = record::Entity::find().count(db).await.unwrap_or(0);
-    let meili_record_count = search_repo
-        .get_document_count(SearchEntityType::Record)
+    for &entity_type in SearchEntityType::ALL {
+        if let Err(error) = repair_entity(
+            db,
+            search_repo,
+            embedding_service,
+            entity_type,
+            repair_version,
+        )
         .await
-        .unwrap_or(0);
-
-    if pg_record_count != meili_record_count {
-        if meili_record_count > pg_record_count {
-            // Ghost documents: delete MeiliSearch documents not in PostgreSQL
-            if !remove_ghost_documents(db, search_repo, SearchEntityType::Record.as_str()).await {
-                return false;
-            }
-        } else {
-            // Missing documents: full sync to upsert
-            tracing::warn!(
-                "Record count mismatch: PostgreSQL={pg_record_count}, MeiliSearch={meili_record_count}. Running full sync..."
+        {
+            tracing::error!(
+                entity_type = entity_type.as_str(),
+                "Search reconciliation failed: {error}"
             );
-            if let Err(e) = run_full_sync(db, search_repo, embedding_service).await {
-                tracing::error!("Reconciliation full sync failed: {}", e);
+            return false;
+        }
+    }
+
+    for &entity_type in SearchEntityType::ALL {
+        let pg_ids = match fetch_entity_ids(db, entity_type).await {
+            Ok(ids) => ids.into_iter().collect::<HashSet<_>>(),
+            Err(error) => {
+                tracing::error!(
+                    entity_type = entity_type.as_str(),
+                    "Failed to verify PostgreSQL IDs: {error}"
+                );
                 return false;
             }
-            return true; // full_sync already handles all entity types
-        }
-    }
-
-    // Reconcile named entities
-    let entity_checks: Vec<(SearchEntityType, u64, u64)> = {
-        let mut checks = Vec::new();
-        let pg = director::Entity::find().count(db).await.unwrap_or(0);
-        let meili = search_repo
-            .get_document_count(SearchEntityType::Director)
-            .await
-            .unwrap_or(0);
-        checks.push((SearchEntityType::Director, pg, meili));
-        let pg = studio::Entity::find().count(db).await.unwrap_or(0);
-        let meili = search_repo
-            .get_document_count(SearchEntityType::Studio)
-            .await
-            .unwrap_or(0);
-        checks.push((SearchEntityType::Studio, pg, meili));
-        let pg = label::Entity::find().count(db).await.unwrap_or(0);
-        let meili = search_repo
-            .get_document_count(SearchEntityType::Label)
-            .await
-            .unwrap_or(0);
-        checks.push((SearchEntityType::Label, pg, meili));
-        let pg = series::Entity::find().count(db).await.unwrap_or(0);
-        let meili = search_repo
-            .get_document_count(SearchEntityType::Series)
-            .await
-            .unwrap_or(0);
-        checks.push((SearchEntityType::Series, pg, meili));
-        let pg = genre::Entity::find().count(db).await.unwrap_or(0);
-        let meili = search_repo
-            .get_document_count(SearchEntityType::Genre)
-            .await
-            .unwrap_or(0);
-        checks.push((SearchEntityType::Genre, pg, meili));
-        let pg = idol::Entity::find().count(db).await.unwrap_or(0);
-        let meili = search_repo
-            .get_document_count(SearchEntityType::Idol)
-            .await
-            .unwrap_or(0);
-        checks.push((SearchEntityType::Idol, pg, meili));
-        checks
-    };
-
-    for (entity_type, pg_count, meili_count) in entity_checks {
-        if pg_count != meili_count {
-            if meili_count > pg_count {
-                if !remove_ghost_documents(db, search_repo, entity_type.as_str()).await {
-                    return false;
-                }
-            } else {
-                tracing::warn!(
-                    "{entity_type} count mismatch: PostgreSQL={pg_count}, MeiliSearch={meili_count}. Running full sync..."
+        };
+        let meili_ids = match search_repo.get_entity_ids(entity_type).await {
+            Ok(ids) => ids.into_iter().collect::<HashSet<_>>(),
+            Err(error) => {
+                tracing::error!(
+                    entity_type = entity_type.as_str(),
+                    "Failed to verify MeiliSearch IDs: {error}"
                 );
-                if let Err(e) = run_full_sync(db, search_repo, embedding_service).await {
-                    tracing::error!("Reconciliation full sync failed: {}", e);
-                    return false;
-                }
-                return true;
+                return false;
             }
+        };
+        if pg_ids != meili_ids {
+            tracing::warn!(
+                entity_type = entity_type.as_str(),
+                postgres = pg_ids.len(),
+                meilisearch = meili_ids.len(),
+                "Search reconciliation verification mismatch"
+            );
+            return false;
         }
     }
+
     tracing::info!(
-        "Reconciliation complete: all entity counts match between PostgreSQL and MeiliSearch"
+        elapsed_ms = start.elapsed().as_millis() as u64,
+        "Search reconciliation complete: all entity ID sets match"
     );
     true
 }
 
-/// Remove ghost documents from `MeiliSearch` that no longer exist in `PostgreSQL`.
-///
-/// Fetches entity IDs from both sides and deletes any `MeiliSearch` documents
-/// whose entity ID is not present in `PostgreSQL`. Returns `true` if all
-/// deletions succeeded, `false` if any failed.
-async fn remove_ghost_documents(
+async fn repair_entity(
     db: &DatabaseConnection,
     search_repo: &Arc<MeiliSearchRepo>,
-    entity_type: &str,
-) -> bool {
-    use std::collections::HashSet;
+    embedding_service: &Arc<EmbeddingService>,
+    entity_type: SearchEntityType,
+    repair_version: i64,
+) -> Result<(), BoxError> {
+    let pg_ids: HashSet<String> = fetch_entity_ids(db, entity_type)
+        .await?
+        .into_iter()
+        .collect();
+    let meili_ids: HashSet<String> = search_repo
+        .get_entity_ids(entity_type)
+        .await?
+        .into_iter()
+        .collect();
 
-    // Get all entity IDs from MeiliSearch for this type
-    let meili_ids = match search_repo
-        .get_entity_ids(
-            SearchEntityType::from_str(entity_type)
-                .ok()
-                .unwrap_or(SearchEntityType::Record),
-        )
-        .await
-    {
-        Ok(ids) => ids,
-        Err(e) => {
-            tracing::error!("Failed to get MeiliSearch IDs for {entity_type}: {e}");
-            return false;
-        }
-    };
+    let mut missing: Vec<String> = pg_ids.difference(&meili_ids).cloned().collect();
+    let mut ghosts: Vec<String> = meili_ids.difference(&pg_ids).cloned().collect();
+    missing.sort_unstable();
+    ghosts.sort_unstable();
 
-    // Get all entity IDs from PostgreSQL for this type
-    let pg_ids: HashSet<String> = {
-        use crate::entities::{director, genre, idol, label, series, studio};
-        match entity_type {
-            "record" => fetch_pg_record_ids(db).await,
-            "director" => {
-                fetch_pg_i64_ids::<director::Entity, director::Column>(db, director::Column::Id)
-                    .await
-            }
-            "studio" => {
-                fetch_pg_i64_ids::<studio::Entity, studio::Column>(db, studio::Column::Id).await
-            }
-            "label" => {
-                fetch_pg_i64_ids::<label::Entity, label::Column>(db, label::Column::Id).await
-            }
-            "series" => {
-                fetch_pg_i64_ids::<series::Entity, series::Column>(db, series::Column::Id).await
-            }
-            "genre" => {
-                fetch_pg_i64_ids::<genre::Entity, genre::Column>(db, genre::Column::Id).await
-            }
-            "idol" => fetch_pg_i64_ids::<idol::Entity, idol::Column>(db, idol::Column::Id).await,
-            _ => return true,
-        }
-    };
-
-    let meili_set: HashSet<String> = meili_ids.into_iter().collect();
-    let ghosts: Vec<&String> = meili_set.difference(&pg_ids).collect();
-
-    if ghosts.is_empty() {
-        return true;
+    if !missing.is_empty() || !ghosts.is_empty() {
+        tracing::warn!(
+            entity_type = entity_type.as_str(),
+            missing = missing.len(),
+            ghosts = ghosts.len(),
+            "Repairing search index ID differences"
+        );
     }
 
-    tracing::warn!(
-        "Found {} ghost {entity_type} documents in MeiliSearch, removing...",
-        ghosts.len()
-    );
-
-    let mut all_ok = true;
-    for ghost_id in ghosts {
-        let doc_id = format!("{entity_type}__{ghost_id}");
-        if let Err(e) = search_repo.delete_document(&doc_id).await {
-            tracing::warn!("Failed to delete ghost document {}: {}", doc_id, e);
-            all_ok = false;
+    for chunk in missing.chunks(SYNC_BATCH_SIZE) {
+        let mut docs = build_documents_for_ids(db, entity_type, chunk, repair_version).await?;
+        if docs.len() != chunk.len() {
+            return Err(format!(
+                "Could not construct all missing {} documents: requested={}, found={}",
+                entity_type.as_str(),
+                chunk.len(),
+                docs.len()
+            )
+            .into());
         }
+        add_embeddings(&mut docs, embedding_service).await;
+        search_repo.batch_upsert(&docs).await?;
+
+        let versions: Vec<(String, String, i64)> = docs
+            .iter()
+            .map(|doc| {
+                (
+                    doc.entity_type.as_str().to_owned(),
+                    doc.entity_id.clone(),
+                    repair_version,
+                )
+            })
+            .collect();
+        TombstoneRepo::upsert_versions_batch(db, &versions).await?;
     }
-    if !all_ok {
-        tracing::warn!("Some ghost {entity_type} documents could not be removed");
+
+    for chunk in ghosts.chunks(SYNC_BATCH_SIZE) {
+        let doc_ids: Vec<String> = chunk
+            .iter()
+            .map(|entity_id| format!("{}__{entity_id}", entity_type.as_str()))
+            .collect();
+        search_repo.batch_delete(&doc_ids).await?;
     }
-    all_ok
-}
 
-/// Fetch all record IDs from `PostgreSQL` (records use String IDs).
-async fn fetch_pg_record_ids(db: &DatabaseConnection) -> std::collections::HashSet<String> {
-    use crate::entities::record;
-    record::Entity::find()
-        .all(db)
-        .await
-        .map(|rows| rows.iter().map(|r| r.id.clone()).collect())
-        .unwrap_or_default()
-}
-
-/// Fetch all i64 PK IDs from a `PostgreSQL` entity table, converted to strings.
-async fn fetch_pg_i64_ids<E, C>(
-    db: &DatabaseConnection,
-    col: C,
-) -> std::collections::HashSet<String>
-where
-    E: sea_orm::EntityTrait,
-    C: sea_orm::ColumnTrait,
-{
-    let rows = E::find()
-        .select_only()
-        .column(col)
-        .into_tuple::<i64>()
-        .all(db)
-        .await
-        .unwrap_or_default();
-
-    rows.into_iter().map(|id| id.to_string()).collect()
+    Ok(())
 }
 
 /// Backfill vector embeddings for record documents that were indexed without them.
-///
-/// Pages through the `MeiliSearch` index using offset-based pagination, filters
-/// for records missing `_vectors`, generates embeddings via vLLM, and upserts
-/// the updated documents. Stops after `MAX_BACKFILL_ITERATIONS` iterations to
-/// bound resource usage; remaining docs are picked up on the next reconciliation.
 pub(super) async fn backfill_missing_vectors(
     search_repo: &Arc<MeiliSearchRepo>,
     embedding_service: &Arc<EmbeddingService>,
@@ -243,80 +164,59 @@ pub(super) async fn backfill_missing_vectors(
     let mut total_updated = 0usize;
     let mut offset = 0usize;
     let mut iterations = 0usize;
-    const MAX_BACKFILL_ITERATIONS: usize = 200; // ~10K docs per recovery
+    const MAX_BACKFILL_ITERATIONS: usize = 200;
 
     loop {
-        let (docs, raw_page_size) = match search_repo
+        let (mut docs, raw_page_size) = match search_repo
             .find_records_missing_vectors(offset, batch_size)
             .await
         {
             Ok(pair) => pair,
-            Err(e) => {
-                tracing::debug!("find_records_missing_vectors failed: {}", e);
+            Err(error) => {
+                tracing::debug!("find_records_missing_vectors failed: {error}");
                 break;
             }
         };
 
-        // If MeiliSearch returned fewer docs than batch_size, we've
-        // reached the end of the corpus.
         if raw_page_size < batch_size && docs.is_empty() {
             break;
         }
-
-        // Advance offset by raw page size regardless of how many were
-        // missing vectors, so we scan the full index.
         offset += raw_page_size;
-
         if docs.is_empty() {
-            // No missing-vector docs on this page, but there may be more
-            // pages. Continue scanning without consuming the iteration
-            // budget so already-vectorized regions are skipped quickly.
             continue;
         }
 
-        // Count only pages that trigger embedding work, so the iteration
-        // budget is spent on genuinely missing-vector documents rather than
-        // already-vectorized pages that must be scanned past.
         iterations += 1;
         if iterations > MAX_BACKFILL_ITERATIONS {
-            tracing::info!("Backfill iteration limit reached, remaining docs will be picked up by reconciliation");
+            tracing::info!(
+                "Backfill iteration limit reached, remaining docs will be picked up later"
+            );
             break;
         }
 
-        tracing::info!(
-            "Backfilling {} records missing vectors (offset {})...",
-            docs.len(),
-            offset
-        );
-
-        let titles: Vec<String> = docs.iter().map(|d| d.title.clone()).collect();
+        let titles: Vec<String> = docs.iter().map(|doc| doc.title.clone()).collect();
         let embeddings = embedding_service.embed_batch(&titles).await;
-
-        // Count how many embeddings were actually generated (not None).
-        // If all are None, the embedding service is unavailable — stop
-        // looping to avoid an infinite cycle of fetching and re-upserting
-        // the same documents without vectors.
-        let actual_embeddings: usize = embeddings.iter().filter(|e| e.is_some()).count();
-
-        for (mut doc, emb) in docs.into_iter().zip(embeddings.into_iter()) {
-            doc.vectors = wrap_vectors(emb);
-            ignore_result(search_repo.upsert_document(&doc).await, "backfill upsert");
-            total_updated += 1;
+        let actual_embeddings = embeddings.iter().filter(|value| value.is_some()).count();
+        for (doc, embedding) in docs.iter_mut().zip(embeddings) {
+            doc.vectors = wrap_vectors(embedding);
         }
+
+        if let Err(error) = search_repo.batch_upsert(&docs).await {
+            tracing::warn!("Vector backfill batch failed: {error}");
+            break;
+        }
+        total_updated += docs.len();
 
         if actual_embeddings == 0 {
             tracing::warn!("Embedding service returned no vectors, stopping backfill");
             break;
         }
-
-        // If the raw MeiliSearch page was smaller than batch_size,
-        // we've scanned the full index.
         if raw_page_size < batch_size {
             break;
         }
     }
 
     if total_updated > 0 {
-        tracing::info!("Backfilled vectors for {} records total", total_updated);
+        tracing::info!(total_updated, "Vector backfill complete");
     }
 }

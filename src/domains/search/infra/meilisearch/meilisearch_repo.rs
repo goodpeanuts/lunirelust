@@ -309,17 +309,6 @@ impl SearchRepository for MeiliSearchRepo {
         self.client.health_check().await
     }
 
-    async fn upsert_document(
-        &self,
-        doc: &SearchDocument,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let index = self.client.index();
-        let task = index.add_documents(&[doc], Some("id")).await?;
-        self.wait_for_task_with_debug(task.get_task_uid(), "upsert_document")
-            .await?;
-        Ok(())
-    }
-
     async fn delete_document(
         &self,
         doc_id: &str,
@@ -331,6 +320,28 @@ impl SearchRepository for MeiliSearchRepo {
         Ok(())
     }
 
+    async fn batch_delete(
+        &self,
+        doc_ids: &[String],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if doc_ids.is_empty() {
+            return Ok(());
+        }
+        let index = self.client.index();
+        let start = std::time::Instant::now();
+        let task = index.delete_documents(doc_ids).await?;
+        let task_uid = task.get_task_uid();
+        self.wait_for_task_with_debug(task_uid, "batch_delete")
+            .await?;
+        tracing::info!(
+            task_uid,
+            documents = doc_ids.len(),
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "MeiliSearch batch delete completed"
+        );
+        Ok(())
+    }
+
     async fn batch_upsert(
         &self,
         docs: &[SearchDocument],
@@ -339,9 +350,17 @@ impl SearchRepository for MeiliSearchRepo {
             return Ok(());
         }
         let index = self.client.index();
+        let start = std::time::Instant::now();
         let task = index.add_documents(docs, Some("id")).await?;
-        self.wait_for_task_with_debug(task.get_task_uid(), "batch_upsert")
+        let task_uid = task.get_task_uid();
+        self.wait_for_task_with_debug(task_uid, "batch_upsert")
             .await?;
+        tracing::info!(
+            task_uid,
+            documents = docs.len(),
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "MeiliSearch batch upsert completed"
+        );
         Ok(())
     }
 
@@ -546,21 +565,14 @@ impl SearchRepository for MeiliSearchRepo {
         let batch: usize = 1000;
 
         loop {
-            let json = match self
+            let json = self
                 .documents_fetch(json!({
                     "filter": format!("entity_type = \"{}\"", entity_type.as_str()),
                     "offset": offset,
                     "limit": batch,
                     "fields": ["entity_id"]
                 }))
-                .await
-            {
-                Ok(json) => json,
-                Err(error) => {
-                    tracing::debug!("get_entity_ids: {}", error);
-                    break;
-                }
-            };
+                .await?;
             let results = json.get("results").and_then(|r| r.as_array());
             match results {
                 Some(arr) if arr.is_empty() => break,

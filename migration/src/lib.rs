@@ -19,6 +19,7 @@ mod m20260428_000001_create_crawl_tables;
 mod m20260428_000002_collapse_duplicate_links;
 mod m20260509_000001_add_record_date_index;
 mod m20260714_000001_create_crawl_entity_progress;
+mod m20260827_000001_add_record_detail_indexes;
 
 pub struct Migrator;
 
@@ -45,6 +46,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260428_000002_collapse_duplicate_links::Migration),
             Box::new(m20260509_000001_add_record_date_index::Migration),
             Box::new(m20260714_000001_create_crawl_entity_progress::Migration),
+            Box::new(m20260827_000001_add_record_detail_indexes::Migration),
         ]
     }
 }

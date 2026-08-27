@@ -52,6 +52,7 @@ mod infra {
         pub(super) mod sql_fallback;
     }
     pub mod indexer {
+        pub(super) mod document_builder;
         pub(super) mod event_processor;
         pub(super) mod full_sync;
         pub mod indexer_service;

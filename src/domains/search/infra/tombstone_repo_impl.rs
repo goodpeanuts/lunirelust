@@ -55,6 +55,66 @@ impl TombstoneRepository for TombstoneRepo {
         Ok(())
     }
 
+    async fn upsert_versions_batch<C: ConnectionTrait + Send>(
+        db: &C,
+        versions: &[(String, String, i64)],
+    ) -> Result<(), sea_orm::DbErr> {
+        if versions.is_empty() {
+            return Ok(());
+        }
+
+        let now = now_with_tz();
+        let mut placeholders = Vec::with_capacity(versions.len());
+        let mut values: Vec<sea_orm::Value> = Vec::with_capacity(versions.len() * 4);
+        for (index, (entity_type, entity_id, version)) in versions.iter().enumerate() {
+            let base = index * 4;
+            placeholders.push(format!(
+                "({}{}, {}{}, {}{}, FALSE, {}{})",
+                '$',
+                base + 1,
+                '$',
+                base + 2,
+                '$',
+                base + 3,
+                '$',
+                base + 4
+            ));
+            values.push(entity_type.clone().into());
+            values.push(entity_id.clone().into());
+            values.push((*version).into());
+            values.push(now.into());
+        }
+
+        let sql = format!(
+            "INSERT INTO search_document_versions
+                 (entity_type, entity_id, last_version, is_deleted, updated_at)
+             VALUES {}
+             ON CONFLICT (entity_type, entity_id) DO UPDATE SET
+                 last_version = GREATEST(
+                     search_document_versions.last_version,
+                     EXCLUDED.last_version
+                 ),
+                 is_deleted = CASE
+                     WHEN EXCLUDED.last_version >= search_document_versions.last_version
+                     THEN FALSE
+                     ELSE search_document_versions.is_deleted
+                 END,
+                 updated_at = CASE
+                     WHEN EXCLUDED.last_version >= search_document_versions.last_version
+                     THEN EXCLUDED.updated_at
+                     ELSE search_document_versions.updated_at
+                 END",
+            placeholders.join(", ")
+        );
+        db.execute(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            sql,
+            values,
+        ))
+        .await?;
+        Ok(())
+    }
+
     async fn get_version(
         db: &DatabaseConnection,
         entity_type: &str,
