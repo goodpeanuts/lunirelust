@@ -11,3 +11,12 @@ db/
 meili_data*/
 data/
 backups/
+
+# SECRET AND RUNTIME-DATA EXCLUSIONS. `.env*` carries real credentials and
+# `.local/` holds dev/test database content. Any future COPY of an env-like
+# path must be reviewed before an entry here is removed.
+.env
+.env.*
+!.env.example
+!.env.test
+.local/

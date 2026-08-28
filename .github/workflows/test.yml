@@ -20,5 +20,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just,cargo-nextest
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
       - name: Run isolated test workflow
         run: just test

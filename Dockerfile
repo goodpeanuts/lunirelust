@@ -35,10 +35,14 @@ COPY --from=node:22-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# Pre-install Playwright + Chromium with ALL required system dependencies.
-# install-deps knows exactly which shared libs Chromium needs for the current
-# Playwright version — replacing a manual dep list that may become incomplete.
-RUN npm install -g playwright \
+# Install the Playwright CLI pinned to the SAME version as the luneth bridge
+# (vendor/luneth/playwright-bridge/package.json, currently 1.59.1 ->
+# chromium-1217). A mismatched pre-installed Chromium revision makes luneth
+# think the browser is "missing" and try to download the right one at runtime;
+# offline containers then fail with "Chromium installation failed (exit 1)" and
+# the crawl circuit-breaks. Keep this pin in sync with Dockerfile.local and
+# whenever luneth bumps its bridge Playwright version.
+RUN npm install -g playwright@1.59.1 \
  && npx playwright install chromium \
  && apt-get update \
  && npx playwright install-deps chromium \
