@@ -12,12 +12,28 @@ start_dev_infrastructure() {
     "${dev_compose[@]}" up -d --wait
 }
 
+canonicalize_path() {
+    # Portable canonicalization that tolerates a missing final component
+    # (GNU `realpath -m` behavior): resolve the deepest existing ancestor
+    # with cd -P/pwd -P, then append the lexical remainder.
+    local path="$1" suffix="" resolved
+    # Split declaration: bash 3.2 expands every word of one `local` command
+    # before assigning, so `ancestor="$path"` must be a separate statement.
+    local ancestor="$path"
+    while [ ! -e "$ancestor" ] && [ "$ancestor" != "/" ]; do
+        suffix="/$(basename "$ancestor")$suffix"
+        ancestor="$(dirname "$ancestor")"
+    done
+    if ! resolved="$(cd -P "$ancestor" 2>/dev/null && pwd -P)"; then
+        return 1
+    fi
+    printf '%s%s\n' "$resolved" "$suffix"
+}
+
 validated_test_root() {
     local expected="$repo_root/.local/test"
     local resolved
-    # BSD realpath (macOS) lacks -m; perl's abs_path resolves symlinks and
-    # canonicalizes even when the final component does not exist yet.
-    resolved="$(perl -MCwd=abs_path -e 'print abs_path($ARGV[0])' "$expected")"
+    resolved="$(canonicalize_path "$expected")" || resolved=""
     if [[ "$resolved" != "$expected" ]]; then
         echo "refusing to clean test data outside $expected (resolved to $resolved)" >&2
         return 1
