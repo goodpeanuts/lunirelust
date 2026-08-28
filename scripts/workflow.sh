@@ -15,7 +15,9 @@ start_dev_infrastructure() {
 validated_test_root() {
     local expected="$repo_root/.local/test"
     local resolved
-    resolved="$(realpath -m "$expected")"
+    # BSD realpath (macOS) lacks -m; perl's abs_path resolves symlinks and
+    # canonicalizes even when the final component does not exist yet.
+    resolved="$(perl -MCwd=abs_path -e 'print abs_path($ARGV[0])' "$expected")"
     if [[ "$resolved" != "$expected" ]]; then
         echo "refusing to clean test data outside $expected (resolved to $resolved)" >&2
         return 1
