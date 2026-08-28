@@ -184,10 +184,14 @@ jobs:
         env:
           OUTPUT: CHANGELOG.md
 
-      - name: Download all artifacts
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          # Restrict to release binaries: the docker job also uploads a
+          # buildx build-record artifact (*.dockerbuild) that cannot be
+          # extracted here and would fail the whole step.
+          pattern: "{lunirelust-*,migration-*}"
 
       - name: List downloaded files
         run: ls -R artifacts
