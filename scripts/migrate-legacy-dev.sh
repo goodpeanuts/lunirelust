@@ -173,4 +173,4 @@ rewrite_dev_env
 echo "legacy data migrated and verified"
 echo "backup and manifests: $migration_dir"
 echo "old data retained: $legacy_dir and $repo_root/meili_data_test"
-echo "run 'just dev' to start the backend and rebuild the Meilisearch index"
+echo "run 'just dev' to start the native backend; optional search is selected by SEARCH_BACKEND"

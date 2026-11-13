@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::{
     common::error::AppError,
     domains::luna::{
@@ -22,14 +23,19 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RecordService {
     db: DatabaseConnection,
+    search_backend: SearchBackend,
     repo: Arc<dyn RecordRepository + Send + Sync>,
 }
 
 #[async_trait]
 impl RecordServiceTrait for RecordService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn RecordServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn RecordServiceTrait> {
         Arc::new(Self {
             db: db.clone(),
+            search_backend,
             repo: Arc::new(RecordRepo),
         })
     }
@@ -160,19 +166,39 @@ impl RecordServiceTrait for RecordService {
             }
         };
 
-        // Insert outbox events for nested named entities (version=0 for fan-out semantics)
-        for (entity_type, entity_info) in [
-            (SearchEntityType::Director, &nested.director),
-            (SearchEntityType::Studio, &nested.studio),
-            (SearchEntityType::Label, &nested.label),
-            (SearchEntityType::Series, &nested.series),
-        ] {
-            if let Some((entity_id, entity_name)) = entity_info {
+        if self.search_backend.indexing_enabled() {
+            // Index nested named entities in the same transaction as the record.
+            for (entity_type, entity_info) in [
+                (SearchEntityType::Director, &nested.director),
+                (SearchEntityType::Studio, &nested.studio),
+                (SearchEntityType::Label, &nested.label),
+                (SearchEntityType::Series, &nested.series),
+            ] {
+                if let Some((entity_id, entity_name)) = entity_info {
+                    if let Err(e) =
+                        crate::domains::luna::infra::search_outbox::outbox_entity_upsert(
+                            &txn,
+                            self.search_backend,
+                            entity_type,
+                            *entity_id,
+                            entity_name,
+                            vec![],
+                        )
+                        .await
+                    {
+                        txn.rollback().await.ok();
+                        return Err(AppError::DatabaseError(e));
+                    }
+                }
+            }
+
+            for (genre_id, genre_name) in &nested.genres {
                 if let Err(e) = crate::domains::luna::infra::search_outbox::outbox_entity_upsert(
                     &txn,
-                    entity_type,
-                    *entity_id,
-                    entity_name,
+                    self.search_backend,
+                    SearchEntityType::Genre,
+                    *genre_id,
+                    genre_name,
                     vec![],
                 )
                 .await
@@ -181,62 +207,48 @@ impl RecordServiceTrait for RecordService {
                     return Err(AppError::DatabaseError(e));
                 }
             }
-        }
 
-        for (genre_id, genre_name) in &nested.genres {
-            if let Err(e) = crate::domains::luna::infra::search_outbox::outbox_entity_upsert(
-                &txn,
-                SearchEntityType::Genre,
-                *genre_id,
-                genre_name,
-                vec![],
-            )
-            .await
-            {
-                txn.rollback().await.ok();
-                return Err(AppError::DatabaseError(e));
-            }
-        }
-
-        for (idol_id, idol_name) in &nested.idols {
-            if let Err(e) = crate::domains::luna::infra::search_outbox::outbox_entity_upsert(
-                &txn,
-                SearchEntityType::Idol,
-                *idol_id,
-                idol_name,
-                vec![],
-            )
-            .await
-            {
-                txn.rollback().await.ok();
-                return Err(AppError::DatabaseError(e));
-            }
-        }
-
-        // Insert outbox event + tombstone for the record itself
-        let version = Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
-        if let Err(e) = OutboxRepo::insert_event(
-            &txn,
-            SearchEntityType::Record.as_str(),
-            &id,
-            "upsert",
-            version,
-            None,
-            None,
-        )
-        .await
-        {
-            txn.rollback().await.ok();
-            return Err(AppError::DatabaseError(e));
-        }
-        if let Err(e) =
-            TombstoneRepo::upsert_version(&txn, SearchEntityType::Record.as_str(), &id, version)
+            for (idol_id, idol_name) in &nested.idols {
+                if let Err(e) = crate::domains::luna::infra::search_outbox::outbox_entity_upsert(
+                    &txn,
+                    self.search_backend,
+                    SearchEntityType::Idol,
+                    *idol_id,
+                    idol_name,
+                    vec![],
+                )
                 .await
-        {
-            txn.rollback().await.ok();
-            return Err(AppError::DatabaseError(e));
+                {
+                    txn.rollback().await.ok();
+                    return Err(AppError::DatabaseError(e));
+                }
+            }
+
+            // Insert outbox event + tombstone for the record itself
+            let version = Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
+            if let Err(e) = OutboxRepo::insert_event(
+                &txn,
+                SearchEntityType::Record.as_str(),
+                &id,
+                "upsert",
+                version,
+                None,
+                None,
+            )
+            .await
+            {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+            if let Err(e) =
+                TombstoneRepo::upsert_version(&txn, SearchEntityType::Record.as_str(), &id, version)
+                    .await
+            {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
         }
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
@@ -264,30 +276,32 @@ impl RecordServiceTrait for RecordService {
             return Err(AppError::NotFound("Record not found".into()));
         };
 
-        // Insert outbox event + tombstone within same transaction
-        let version = Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
-        if let Err(e) = OutboxRepo::insert_event(
-            &txn,
-            SearchEntityType::Record.as_str(),
-            id,
-            "upsert",
-            version,
-            None,
-            None,
-        )
-        .await
-        {
-            txn.rollback().await.ok();
-            return Err(AppError::DatabaseError(e));
-        }
-        if let Err(e) =
-            TombstoneRepo::upsert_version(&txn, SearchEntityType::Record.as_str(), id, version)
-                .await
-        {
-            txn.rollback().await.ok();
-            return Err(AppError::DatabaseError(e));
+        if self.search_backend.indexing_enabled() {
+            // Insert outbox event + tombstone within same transaction
+            let version = Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
+            if let Err(e) = OutboxRepo::insert_event(
+                &txn,
+                SearchEntityType::Record.as_str(),
+                id,
+                "upsert",
+                version,
+                None,
+                None,
+            )
+            .await
+            {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+            if let Err(e) =
+                TombstoneRepo::upsert_version(&txn, SearchEntityType::Record.as_str(), id, version)
+                    .await
+            {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
         }
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
@@ -334,29 +348,32 @@ impl RecordServiceTrait for RecordService {
             return Err(AppError::NotFound("Record not found".into()));
         }
 
-        // Insert outbox delete event + mark tombstone within same transaction
-        let version = Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
-        if let Err(e) = OutboxRepo::insert_event(
-            &txn,
-            SearchEntityType::Record.as_str(),
-            id,
-            "delete",
-            version,
-            None,
-            None,
-        )
-        .await
-        {
-            txn.rollback().await.ok();
-            return Err(AppError::DatabaseError(e));
-        }
-        if let Err(e) =
-            TombstoneRepo::mark_deleted(&txn, SearchEntityType::Record.as_str(), id, version).await
-        {
-            txn.rollback().await.ok();
-            return Err(AppError::DatabaseError(e));
+        if self.search_backend.indexing_enabled() {
+            // Insert outbox delete event + mark tombstone within same transaction
+            let version = Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
+            if let Err(e) = OutboxRepo::insert_event(
+                &txn,
+                SearchEntityType::Record.as_str(),
+                id,
+                "delete",
+                version,
+                None,
+                None,
+            )
+            .await
+            {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
+            if let Err(e) =
+                TombstoneRepo::mark_deleted(&txn, SearchEntityType::Record.as_str(), id, version)
+                    .await
+            {
+                txn.rollback().await.ok();
+                return Err(AppError::DatabaseError(e));
+            }
         }
 
         txn.commit().await.map_err(AppError::DatabaseError)?;

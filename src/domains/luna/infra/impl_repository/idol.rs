@@ -158,6 +158,8 @@ impl IdolAffinityRepository for IdolRepo {
         // The score is a relative ordering key and is NOT bounded to [0, 1].
         // The outer CASE guards total=0; both rate denominators are always
         // positive (M_V, M_L > 0) so there is no division by zero.
+        // Catalog/junction keys and (user_id, record_id) are unique, so this
+        // join cannot multiply a work. DISTINCT would only add redundant sorting.
         let select_sql = format!(
             "SELECT i.id, i.name, i.link, i.manual, \
              COALESCE( \
@@ -171,9 +173,9 @@ impl IdolAffinityRepository for IdolRepo {
              FROM idol i \
              LEFT JOIN ( \
                SELECT ip.idol_id, \
-                      COUNT(DISTINCT ip.record_id) AS total, \
-                      COUNT(DISTINCT ip.record_id) FILTER (WHERE uri.viewed) AS viewed, \
-                      COUNT(DISTINCT ip.record_id) FILTER (WHERE uri.liked AND uri.viewed) AS liked \
+                      COUNT(ip.record_id) AS total, \
+                      COUNT(ip.record_id) FILTER (WHERE uri.viewed) AS viewed, \
+                      COUNT(ip.record_id) FILTER (WHERE uri.liked AND uri.viewed) AS liked \
                FROM idol_participation ip \
                LEFT JOIN user_record_interaction uri \
                       ON uri.record_id = ip.record_id AND uri.user_id = $1 \

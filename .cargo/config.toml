@@ -1,3 +1,7 @@
+# Bound concurrent compiler processes; CARGO_BUILD_JOBS can override deliberately.
+[build]
+jobs = 2
+
 [alias]
 # NOTE:
 # These aliases provide a fast/consistent local workflow.

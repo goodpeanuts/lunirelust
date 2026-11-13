@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -8,7 +8,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value as JsonValue};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 
 use lunirelust::domains::search::constants::{FILTERABLE_ATTRIBUTES, SEARCHABLE_ATTRIBUTES};
@@ -21,6 +21,7 @@ const EMBEDDER_TASK_UID: u32 = 42;
 pub enum FakeEmbedderFailureMode {
     PatchRejected,
     TaskFailed,
+    Healthy,
 }
 
 #[derive(Clone)]
@@ -29,19 +30,78 @@ struct FakeMeiliState {
     next_task_uid: Arc<AtomicU32>,
     embedder_patch_requests: Arc<AtomicUsize>,
     keyword_search_requests: Arc<AtomicUsize>,
+    embedding_requests: Arc<AtomicUsize>,
+    vector_search_requests: Arc<AtomicUsize>,
+    document_upserts: Arc<AtomicUsize>,
+    reject_document_upserts: Arc<AtomicBool>,
+    health_requests: Arc<AtomicUsize>,
     documents: Arc<Mutex<HashMap<String, JsonValue>>>,
+    pause_document: Arc<Mutex<Option<String>>>,
+    upsert_waiting: Arc<Notify>,
+    resume_upsert: Arc<Notify>,
 }
 
 pub struct FakeMeiliServer {
     pub base_url: String,
     embedder_patch_requests: Arc<AtomicUsize>,
     keyword_search_requests: Arc<AtomicUsize>,
+    embedding_requests: Arc<AtomicUsize>,
+    vector_search_requests: Arc<AtomicUsize>,
+    document_upserts: Arc<AtomicUsize>,
+    reject_document_upserts: Arc<AtomicBool>,
+    health_requests: Arc<AtomicUsize>,
+    documents: Arc<Mutex<HashMap<String, JsonValue>>>,
+    pause_document: Arc<Mutex<Option<String>>>,
+    upsert_waiting: Arc<Notify>,
+    resume_upsert: Arc<Notify>,
     handle: JoinHandle<()>,
 }
 
 impl FakeMeiliServer {
     pub fn embedder_patch_requests(&self) -> usize {
         self.embedder_patch_requests.load(Ordering::Relaxed)
+    }
+
+    pub fn set_reject_document_upserts(&self, reject: bool) {
+        self.reject_document_upserts
+            .store(reject, Ordering::Relaxed);
+    }
+
+    pub fn health_requests(&self) -> usize {
+        self.health_requests.load(Ordering::Relaxed)
+    }
+
+    pub async fn pause_upsert_for(&self, id: String) {
+        *self.pause_document.lock().await = Some(id);
+    }
+
+    pub async fn wait_for_paused_upsert(&self) {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.upsert_waiting.notified(),
+        )
+        .await
+        .expect("indexer did not reach the paused document");
+    }
+
+    pub fn resume_upsert(&self) {
+        self.resume_upsert.notify_one();
+    }
+
+    pub fn document_upserts(&self) -> usize {
+        self.document_upserts.load(Ordering::Relaxed)
+    }
+
+    pub async fn document(&self, id: &str) -> Option<JsonValue> {
+        self.documents.lock().await.get(id).cloned()
+    }
+
+    pub fn embedding_requests(&self) -> usize {
+        self.embedding_requests.load(Ordering::Relaxed)
+    }
+
+    pub fn vector_search_requests(&self) -> usize {
+        self.vector_search_requests.load(Ordering::Relaxed)
     }
 
     pub fn keyword_search_requests(&self) -> usize {
@@ -63,11 +123,21 @@ pub async fn spawn_fake_meili_server(
         next_task_uid: Arc::new(AtomicU32::new(100)),
         embedder_patch_requests: Arc::new(AtomicUsize::new(0)),
         keyword_search_requests: Arc::new(AtomicUsize::new(0)),
+        embedding_requests: Arc::new(AtomicUsize::new(0)),
+        vector_search_requests: Arc::new(AtomicUsize::new(0)),
+        document_upserts: Arc::new(AtomicUsize::new(0)),
+        reject_document_upserts: Arc::new(AtomicBool::new(false)),
+        health_requests: Arc::new(AtomicUsize::new(0)),
         documents: Arc::new(Mutex::new(HashMap::new())),
+        pause_document: Arc::new(Mutex::new(None)),
+        upsert_waiting: Arc::new(Notify::new()),
+        resume_upsert: Arc::new(Notify::new()),
     };
 
     let app = Router::new()
         .route("/health", get(get_health))
+        .route("/embedding/health", get(get_embedding_health))
+        .route("/embedding/v1/embeddings", post(post_embeddings))
         .route("/indexes/{index_uid}", get(get_index))
         .route(
             "/indexes/{index_uid}/settings",
@@ -113,12 +183,42 @@ pub async fn spawn_fake_meili_server(
         base_url: format!("http://{address}"),
         embedder_patch_requests: state.embedder_patch_requests,
         keyword_search_requests: state.keyword_search_requests,
+        embedding_requests: state.embedding_requests,
+        vector_search_requests: state.vector_search_requests,
+        document_upserts: state.document_upserts,
+        reject_document_upserts: state.reject_document_upserts,
+        health_requests: state.health_requests,
+        documents: state.documents,
+        pause_document: state.pause_document,
+        upsert_waiting: state.upsert_waiting,
+        resume_upsert: state.resume_upsert,
         handle,
     }
 }
 
-async fn get_health() -> Json<JsonValue> {
+async fn get_health(State(state): State<FakeMeiliState>) -> Json<JsonValue> {
+    state.health_requests.fetch_add(1, Ordering::Relaxed);
     Json(json!({ "status": "available" }))
+}
+
+async fn get_embedding_health(State(state): State<FakeMeiliState>) -> Json<JsonValue> {
+    state.embedding_requests.fetch_add(1, Ordering::Relaxed);
+    Json(json!({"status": "available"}))
+}
+
+async fn post_embeddings(
+    State(state): State<FakeMeiliState>,
+    Json(body): Json<JsonValue>,
+) -> Json<JsonValue> {
+    state.embedding_requests.fetch_add(1, Ordering::Relaxed);
+    let count = body
+        .get("input")
+        .and_then(JsonValue::as_array)
+        .map_or(1, Vec::len);
+    let data: Vec<JsonValue> = (0..count)
+        .map(|_| json!({"embedding": vec![0.1; 1024]}))
+        .collect();
+    Json(json!({"data": data}))
 }
 
 async fn get_index(Path(index_uid): Path<String>) -> Json<JsonValue> {
@@ -152,7 +252,7 @@ async fn patch_settings(State(state): State<FakeMeiliState>) -> (StatusCode, Jso
                 "message": "invalid embedder configuration"
             })),
         ),
-        FakeEmbedderFailureMode::TaskFailed => (
+        FakeEmbedderFailureMode::TaskFailed | FakeEmbedderFailureMode::Healthy => (
             StatusCode::ACCEPTED,
             Json(json!({
                 "taskUid": EMBEDDER_TASK_UID
@@ -216,6 +316,28 @@ async fn post_documents(
     State(state): State<FakeMeiliState>,
     Json(body): Json<JsonValue>,
 ) -> (StatusCode, Json<JsonValue>) {
+    let pause = {
+        let mut target = state.pause_document.lock().await;
+        let matches = target.as_ref().is_some_and(|id| {
+            body.as_array()
+                .is_some_and(|documents| documents.iter().any(|document| document["id"] == *id))
+        });
+        if matches {
+            target.take();
+        }
+        matches
+    };
+    if pause {
+        state.upsert_waiting.notify_one();
+        state.resume_upsert.notified().await;
+    }
+    state.document_upserts.fetch_add(1, Ordering::Relaxed);
+    if state.reject_document_upserts.load(Ordering::Relaxed) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"message": "test document write failure"})),
+        );
+    }
     if let Some(documents) = body.as_array() {
         let mut stored = state.documents.lock().await;
         for document in documents {
@@ -271,7 +393,16 @@ fn accepted_delete_task(state: &FakeMeiliState) -> (StatusCode, Json<JsonValue>)
     )
 }
 
-async fn search_documents(State(state): State<FakeMeiliState>) -> Json<JsonValue> {
+async fn search_documents(
+    State(state): State<FakeMeiliState>,
+    body: Option<Json<JsonValue>>,
+) -> Json<JsonValue> {
+    if body
+        .as_ref()
+        .is_some_and(|body| body.get("vector").is_some())
+    {
+        state.vector_search_requests.fetch_add(1, Ordering::Relaxed);
+    }
     state
         .keyword_search_requests
         .fetch_add(1, Ordering::Relaxed);

@@ -20,3 +20,8 @@ backups/
 !.env.example
 !.env.test
 .local/
+
+# Private operations, host configuration and history are never application build input.
+subm/
+.claude/
+.codex/

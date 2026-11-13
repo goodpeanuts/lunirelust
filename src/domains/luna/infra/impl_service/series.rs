@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
@@ -18,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct SeriesService {
     db: DatabaseConnection,
+    search_backend: SearchBackend,
     repo: Arc<dyn SeriesRepository + Send + Sync>,
     /// Separate handle for affinity-ordered listing. A `dyn SeriesRepository`
     /// object cannot expose `SeriesAffinityRepository` methods, so the affinity
@@ -27,9 +29,13 @@ pub struct SeriesService {
 
 #[async_trait]
 impl SeriesServiceTrait for SeriesService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn SeriesServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn SeriesServiceTrait> {
         Arc::new(Self {
             db: db.clone(),
+            search_backend,
             repo: Arc::new(SeriesRepo),
             affinity_repo: Arc::new(SeriesRepo),
         })
@@ -122,6 +128,7 @@ impl SeriesServiceTrait for SeriesService {
         if was_created {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Series,
                 id,
                 &entity_name,
@@ -143,10 +150,14 @@ impl SeriesServiceTrait for SeriesService {
     ) -> Result<SeriesDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let pre_affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Series, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let pre_affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Series,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let updated_series = self
             .repo
@@ -161,12 +172,19 @@ impl SeriesServiceTrait for SeriesService {
 
         let surviving_id = series.id;
         if surviving_id != id {
-            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Series, id, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_entity_delete(
+                &txn,
+                self.search_backend,
+                SearchEntityType::Series,
+                id,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             let mut all_affected = pre_affected.clone();
             let surviving_affected = search_outbox::find_affected_record_ids(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Series,
                 surviving_id,
             )
@@ -177,6 +195,7 @@ impl SeriesServiceTrait for SeriesService {
             all_affected.dedup();
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Series,
                 surviving_id,
                 &series.name,
@@ -184,12 +203,13 @@ impl SeriesServiceTrait for SeriesService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &all_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &all_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         } else {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Series,
                 id,
                 &series.name,
@@ -197,7 +217,7 @@ impl SeriesServiceTrait for SeriesService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &pre_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         }
@@ -210,9 +230,14 @@ impl SeriesServiceTrait for SeriesService {
     async fn delete_series(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Series, id)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Series,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let deleted = self
             .repo
@@ -225,10 +250,16 @@ impl SeriesServiceTrait for SeriesService {
             return Err(AppError::NotFound("Series not found".into()));
         }
 
-        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Series, id, affected.clone())
-            .await
-            .map_err(AppError::DatabaseError)?;
-        search_outbox::outbox_fanout_records(&txn, &affected)
+        search_outbox::outbox_entity_delete(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Series,
+            id,
+            affected.clone(),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, self.search_backend, &affected)
             .await
             .map_err(AppError::DatabaseError)?;
 

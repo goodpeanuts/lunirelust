@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
@@ -18,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct LabelService {
     db: DatabaseConnection,
+    search_backend: SearchBackend,
     repo: Arc<dyn LabelRepository + Send + Sync>,
     /// Separate handle for affinity-ordered listing. A `dyn LabelRepository`
     /// object cannot expose `LabelAffinityRepository` methods, so the affinity
@@ -27,9 +29,13 @@ pub struct LabelService {
 
 #[async_trait]
 impl LabelServiceTrait for LabelService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn LabelServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn LabelServiceTrait> {
         Arc::new(Self {
             db,
+            search_backend,
             repo: Arc::new(LabelRepo {}),
             affinity_repo: Arc::new(LabelRepo {}),
         })
@@ -104,6 +110,7 @@ impl LabelServiceTrait for LabelService {
         if was_created {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Label,
                 label_id,
                 &entity_name,
@@ -124,10 +131,14 @@ impl LabelServiceTrait for LabelService {
     ) -> Result<LabelDto, AppError> {
         let txn = self.db.begin().await?;
 
-        let pre_affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Label, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let pre_affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Label,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let label = match self.repo.update(&txn, id, update_dto).await {
             Ok(Some(l)) => l,
@@ -143,12 +154,19 @@ impl LabelServiceTrait for LabelService {
 
         let surviving_id = label.id;
         if surviving_id != id {
-            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Label, id, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_entity_delete(
+                &txn,
+                self.search_backend,
+                SearchEntityType::Label,
+                id,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             let mut all_affected = pre_affected.clone();
             let surviving_affected = search_outbox::find_affected_record_ids(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Label,
                 surviving_id,
             )
@@ -159,6 +177,7 @@ impl LabelServiceTrait for LabelService {
             all_affected.dedup();
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Label,
                 surviving_id,
                 &label.name,
@@ -166,12 +185,13 @@ impl LabelServiceTrait for LabelService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &all_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &all_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         } else {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Label,
                 id,
                 &label.name,
@@ -179,7 +199,7 @@ impl LabelServiceTrait for LabelService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &pre_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         }
@@ -191,9 +211,14 @@ impl LabelServiceTrait for LabelService {
     async fn delete_label(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
 
-        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Label, id)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Label,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         match self.repo.delete(&txn, id).await {
             Ok(true) => {}
@@ -207,10 +232,16 @@ impl LabelServiceTrait for LabelService {
             }
         }
 
-        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Label, id, affected.clone())
-            .await
-            .map_err(AppError::DatabaseError)?;
-        search_outbox::outbox_fanout_records(&txn, &affected)
+        search_outbox::outbox_entity_delete(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Label,
+            id,
+            affected.clone(),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, self.search_backend, &affected)
             .await
             .map_err(AppError::DatabaseError)?;
 

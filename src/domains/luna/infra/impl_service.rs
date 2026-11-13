@@ -34,13 +34,22 @@ impl LunaServiceTrait for LunaService {
     /// Constructor for the service.
     fn create_service(config: Config, db: DatabaseConnection) -> Arc<dyn LunaServiceTrait> {
         Arc::new(Self {
-            director_service: director::DirectorService::create_service(db.clone()),
-            genre_service: genre::GenreService::create_service(db.clone()),
-            label_service: label::LabelService::create_service(db.clone()),
-            studio_service: studio::StudioService::create_service(db.clone()),
-            series_service: series::SeriesService::create_service(db.clone()),
+            director_service: director::DirectorService::create_service(
+                db.clone(),
+                config.search_backend,
+            ),
+            genre_service: genre::GenreService::create_service(db.clone(), config.search_backend),
+            label_service: label::LabelService::create_service(db.clone(), config.search_backend),
+            studio_service: studio::StudioService::create_service(
+                db.clone(),
+                config.search_backend,
+            ),
+            series_service: series::SeriesService::create_service(
+                db.clone(),
+                config.search_backend,
+            ),
             idol_service: idol::IdolService::create_service(db.clone(), config.clone()),
-            record_service: record::RecordService::create_service(db),
+            record_service: record::RecordService::create_service(db, config.search_backend),
             file_service: Arc::new(file::FileService::new(config)),
         })
     }

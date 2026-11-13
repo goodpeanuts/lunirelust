@@ -21,6 +21,9 @@ mod m20260509_000001_add_record_date_index;
 mod m20260714_000001_create_crawl_entity_progress;
 mod m20260827_000001_add_record_detail_indexes;
 
+mod m20261114_000001_create_search_index_state;
+mod m20261114_000002_index_postgres_search;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -47,6 +50,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260509_000001_add_record_date_index::Migration),
             Box::new(m20260714_000001_create_crawl_entity_progress::Migration),
             Box::new(m20260827_000001_add_record_detail_indexes::Migration),
+            Box::new(m20261114_000001_create_search_index_state::Migration),
+            Box::new(m20261114_000002_index_postgres_search::Migration),
         ]
     }
 }

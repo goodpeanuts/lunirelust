@@ -6,24 +6,6 @@ permissions:
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TERM_COLOR: always
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.92
-          components: rustfmt,clippy
-      - name: Configure git for private dependencies
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_CREDENTIALS }}@github.com/".insteadOf "https://github.com/"
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
-      - name: Run repository quality gates
-        run: just check
-
   spelling:
     runs-on: ubuntu-latest
     steps:

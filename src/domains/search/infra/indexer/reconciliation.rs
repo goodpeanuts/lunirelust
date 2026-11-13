@@ -6,10 +6,8 @@ use std::sync::Arc;
 use sea_orm::DatabaseConnection;
 
 use crate::domains::search::domain::repository::search_repo::SearchRepository as _;
-use crate::domains::search::domain::repository::tombstone_repo::TombstoneRepository as _;
 use crate::domains::search::infra::embedding::embedding_service::EmbeddingService;
 use crate::domains::search::infra::meilisearch::meilisearch_repo::MeiliSearchRepo;
-use crate::domains::search::infra::tombstone_repo_impl::TombstoneRepo;
 use crate::domains::search::SearchEntityType;
 
 use super::document_builder::{build_documents_for_ids, fetch_entity_ids};
@@ -25,9 +23,8 @@ pub(super) async fn reconcile_index(
     embedding_service: &Arc<EmbeddingService>,
 ) -> bool {
     let start = std::time::Instant::now();
-    let repair_version = chrono::Utc::now()
-        .timestamp_nanos_opt()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() * 1_000_000);
+    // Reconciliation must not advance versions past concurrent business writes.
+    let repair_version = 0;
 
     for &entity_type in SearchEntityType::ALL {
         if let Err(error) = repair_entity(
@@ -130,18 +127,6 @@ async fn repair_entity(
         }
         add_embeddings(&mut docs, embedding_service).await;
         search_repo.batch_upsert(&docs).await?;
-
-        let versions: Vec<(String, String, i64)> = docs
-            .iter()
-            .map(|doc| {
-                (
-                    doc.entity_type.as_str().to_owned(),
-                    doc.entity_id.clone(),
-                    repair_version,
-                )
-            })
-            .collect();
-        TombstoneRepo::upsert_versions_batch(db, &versions).await?;
     }
 
     for chunk in ghosts.chunks(SYNC_BATCH_SIZE) {

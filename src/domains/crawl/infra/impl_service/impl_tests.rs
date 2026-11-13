@@ -292,6 +292,7 @@ fn test_config() -> Config {
         asset_allowed_extensions: vec!["jpg".to_owned()],
         asset_max_size: 1024,
         cors_origins: vec![],
+        search_backend: crate::common::config::SearchBackend::Postgres,
         meili_url: "http://localhost:7700".to_owned(),
         meili_master_key: "test".to_owned(),
         vllm_embedding_url: "http://localhost:8000".to_owned(),
@@ -844,4 +845,117 @@ async fn entity_auto_intermittent_errors_do_not_trip_breaker() {
         "intermittent errors must not trip the breaker: {:?}",
         fin.error_message
     );
+}
+
+#[tokio::test]
+#[expect(clippy::too_many_lines)]
+async fn postgres_crawl_insertion_keeps_record_and_nested_entities_without_search_events() {
+    use std::collections::HashMap;
+
+    use crate::common::config::{setup_test_database, SearchBackend};
+    use crate::domains::luna::{LunaService, LunaServiceTrait};
+    use crate::domains::search::{SearchService, SearchServiceTrait};
+    use sea_orm::{ConnectionTrait as _, DbBackend, Statement};
+
+    let mut config = Config::from_env().expect("crawl persistence test requires APP_ENV=test");
+    config.search_backend = SearchBackend::Postgres;
+    let db = setup_test_database(&config)
+        .await
+        .expect("isolated test database");
+    let id = format!("crawl-mode-{}", uuid::Uuid::new_v4());
+    let scratch = std::env::temp_dir().join(&id);
+    config.assets_private_path = scratch.to_string_lossy().into_owned();
+    let lifecycle =
+        <SearchService as SearchServiceTrait>::create_service(config.clone(), db.clone());
+    lifecycle
+        .trigger_startup_sync()
+        .await
+        .expect("persist PostgreSQL mode");
+    let (repo, _, _) = RecordingCrawlTaskRepo::new();
+    let (mut service, _, _, _) = test_service(repo, Arc::new(RecordRepo));
+    service.db = db.clone();
+    service.config = config.clone();
+    let named = HashMap::from([(id.clone(), String::new())]);
+    let entry = luneth::record::RecordEntry {
+        id: id.clone(),
+        title: "Crawl persistence fixture".to_owned(),
+        release_date: "2026-01-01".to_owned(),
+        length: "60".to_owned(),
+        director: named.clone(),
+        studio: named.clone(),
+        label: named.clone(),
+        series: named.clone(),
+        genre: named.clone(),
+        idols: named,
+        share_magnet_links: vec![],
+        local_image_count: 0,
+    };
+    let result = service
+        .insert_crawled_record(&entry, &[], &id)
+        .await
+        .expect("persist crawled record");
+    assert_eq!(result, (id.clone(), 0, false));
+    let catalog = <LunaService as LunaServiceTrait>::create_service(config, db.clone());
+    let record = catalog
+        .record_service()
+        .get_record_by_id(&id)
+        .await
+        .expect("persisted record");
+    for (entity_type, entity_id) in [
+        ("record", id.clone()),
+        ("director", record.director.id.to_string()),
+        ("studio", record.studio.id.to_string()),
+        ("label", record.label.id.to_string()),
+        ("series", record.series.id.to_string()),
+        ("genre", record.genres[0].genre.id.to_string()),
+        ("idol", record.idols[0].idol.id.to_string()),
+    ] {
+        for table in ["search_sync_events", "search_document_versions"] {
+            let row = db.query_one(Statement::from_sql_and_values(DbBackend::Postgres,
+                format!("SELECT count(*) AS n FROM {table} WHERE entity_type = $1 AND entity_id = $2"),
+                [entity_type.into(), entity_id.clone().into()],
+            )).await.expect("count search state").expect("count row");
+            assert_eq!(
+                row.try_get::<i64>("", "n").expect("count"),
+                0,
+                "PostgreSQL crawl wrote {table} for {entity_type}"
+            );
+        }
+    }
+    catalog
+        .record_service()
+        .delete_record(&id)
+        .await
+        .expect("cleanup record");
+    catalog
+        .director_service()
+        .delete_director(record.director.id)
+        .await
+        .expect("cleanup director");
+    catalog
+        .studio_service()
+        .delete_studio(record.studio.id)
+        .await
+        .expect("cleanup studio");
+    catalog
+        .label_service()
+        .delete_label(record.label.id)
+        .await
+        .expect("cleanup label");
+    catalog
+        .series_service()
+        .delete_series(record.series.id)
+        .await
+        .expect("cleanup series");
+    catalog
+        .genre_service()
+        .delete_genre(record.genres[0].genre.id)
+        .await
+        .expect("cleanup genre");
+    catalog
+        .idol_service()
+        .delete_idol(record.idols[0].idol.id)
+        .await
+        .expect("cleanup idol");
+    std::fs::remove_dir_all(scratch).expect("cleanup crawl test directory");
 }

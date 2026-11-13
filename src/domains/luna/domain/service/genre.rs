@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::{
     common::error::AppError,
     domains::luna::dto::{
@@ -14,7 +15,10 @@ use std::sync::Arc;
 /// Trait defining business operations for genre management.
 pub trait GenreServiceTrait: Send + Sync {
     /// Constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn GenreServiceTrait>
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn GenreServiceTrait>
     where
         Self: Sized;
 

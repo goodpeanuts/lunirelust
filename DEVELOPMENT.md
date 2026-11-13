@@ -1,247 +1,143 @@
 # Development Guide
 
-This is the operational guide for Lunirelust: environment setup, local development,
-testing, the contribution workflow. For the project overview, feature list, and tech stack, see
-[README.md](README.md).
+Use the [justfile](justfile) as the command catalog. Application code, registered
+migrations, and executable workflow files are the sources of truth. Private
+deployment details are in [subm/README.md](subm/README.md).
 
-Most day-to-day tasks (dev server, tests, lint, audit, migrations, build) are recipes in
-the [`justfile`](justfile). Run `just` with no arguments to list them; the justfile is the
-canonical command catalog, so this guide describes tasks by purpose rather than
-duplicating recipe names (which may change).
+## Setup
 
-## Contents
-
-- [First-time setup](#first-time-setup)
-- [Running locally](#running-locally)
-- [Database and migrations](#database-and-migrations)
-- [Testing and quality](#testing-and-quality)
-- [Contribution workflow](#contribution-workflow)
-- [Working with the submodule](#working-with-the-submodule)
-- [Changelog and release](#changelog-and-release)
-- [Troubleshooting and common pitfalls](#troubleshooting-and-common-pitfalls)
-
-
-
-## First-time setup
-
-### Prerequisites
-
-- **Rust** — version pinned by [`rust-toolchain`](rust-toolchain); `rustup` picks it up
-  automatically inside the repo.
-- **Docker + Docker Compose v2** — PostgreSQL, MeiliSearch, and vLLM run in containers.
-  The [`justfile`](justfile) uses the v2 syntax (`docker compose`).
-- **Node.js >= 18** — required by the integrated `luneth` crawler for Playwright-based
-  browser automation (the bridge JS is embedded in the binary, Node runs at runtime).
-- **Rust tooling** used by the `justfile` and pre-commit hooks:
-
-  ```bash
-  cargo install just                 # task runner (runs the justfile recipes)
-  cargo install cargo-watch          # hot reload during development
-  cargo install --locked cargo-nextest  # test runner
-  cargo install sea-orm-cli          # migrations / codegen
-  cargo install --locked cargo-deny  # dependency audit
-  cargo install typos-cli            # spell check
-  cargo install git-cliff            # changelog generation (release flow)
-  ```
-
-- **pre-commit**:
-
-  ```bash
-  brew install pre-commit   # or: pip install --user pre-commit
-  pre-commit install
-  ```
-
-### Clone with submodules
-
-From scratch:
+Install the Rust version pinned in [rust-toolchain](rust-toolchain), Docker with
+Compose v2, and `just`. Development hot reload uses `cargo-watch` when installed;
+otherwise the same command runs the backend with `cargo run`. Tests require
+`cargo-nextest` and Node.js 22 with npm (the same Node major version as the
+[Dockerfile](Dockerfile)). The crawler startup regression requires Node even though
+it does not launch a browser; actual crawling also needs the browser dependencies
+used by `luneth`. Some Git dependencies and the submodule require repository access.
 
 ```bash
-git clone --recurse-submodules git@github.com:goodpeanuts/lunirelust.git
-```
-
-For an existing clone that was taken without `--recurse-submodules`:
-
-```bash
+cargo install --locked just cargo-watch cargo-nextest
+node --version
+npm --version
 git submodule update --init --recursive
-```
-
-> If `git submodule update` ever fails with
-> `fatal: remote error: upload-pack: not our ref <sha>`, the superproject is pointing at
-> a submodule commit that was never pushed. Jump to
-> [Troubleshooting](#troubleshooting-and-common-pitfalls).
-
-### Configure the environment
-
-The root [`.env.example`](.env.example) is the canonical, non-secret development template.
-
-```bash
 just dev
 ```
 
-On first run, `just dev` creates a private `.env` with mode `0600`, starts PostgreSQL and Meilisearch, applies forward migrations, and starts the backend with hot reload. It never overwrites an existing `.env`.
+`just dev` copies [.env.example](.env.example) to a private `.env` only when missing,
+sets mode `0600`, starts PostgreSQL, applies forward migrations, and runs the backend
+natively with Swagger enabled. It preserves existing configuration. The example
+binds the API to `127.0.0.1:8012`; Swagger UI is at `/docs`.
 
-The committed [`.env.test`](.env.test) is fixed, non-sensitive configuration for disposable tests. `APP_ENV` and the database identity are intentionally different: dev is `luna_dev@127.0.0.1:5434/luna_dev`; test is `luna_test@127.0.0.1:5433/luna_test`. Do not load either file with `source`; the `just` recipes use the safe loader.
+`just dev-infra` starts only selected middleware. `just dev-down` stops all optional
+middleware too and preserves `.local/dev`. `just build` builds and starts the optional
+containerized application with the same selected middleware; `just build-down` stops
+it while preserving data. Use the native loop for routine development.
 
-## Running locally
+| `SEARCH_BACKEND` in `.env` | Middleware started | Search behavior |
+| --- | --- | --- |
+| `postgres` (default) | PostgreSQL | Literal, case-insensitive SQL search |
+| `meili-keyword` | PostgreSQL + MeiliSearch (`search` profile) | Keyword search, SQL fallback |
+| `meili-hybrid` | PostgreSQL + MeiliSearch + vLLM (`hybrid` profile) | Optional semantic ranking, keyword/SQL fallback |
 
-Use these three local lifecycle commands:
+Switch modes by stopping the dev stack, editing `.env`, and starting it again.
+Hybrid mode requires a compatible GPU, model cache/download, and additional memory;
+it is optional. `COMPOSE_PROFILES` inherited from the terminal is cleared so backend
+selection is explicit. Production uses the equivalent private Compose profiles.
 
-```bash
-just dev        # infrastructure + forward migration + hot reload
-just dev-infra  # infrastructure only
-just dev-down   # stop dev containers; persistent data remains
-```
+PostgreSQL responses retain the API mode string `sql_fallback` for compatibility.
+SQL results use record date descending and ID ascending, followed by director,
+studio, label, series, genre, and idol results ordered by name and ID. Page size is
+capped at 100. Unknown nonempty entity types and invalid/reversed date ranges return
+validation errors. `%`, `_`, and backslashes in search text are literal characters.
+Single-character terms remain supported but can require broad scans. Trigram indexes
+accelerate selective text searches; they do not provide semantic ranking.
 
-Once running:
+## Resource limits
 
-- API base: `http://${SERVICE_HOST}:${SERVICE_PORT}`
-- Swagger UI / OpenAPI docs: `http://${SERVICE_HOST}:${SERVICE_PORT}/docs`
+[Cargo configuration](.cargo/config.toml) limits compilation to two jobs. Dev/test
+profiles omit full debug information and avoid optimizing every dependency during
+local compilation. Set `CARGO_BUILD_JOBS=1` for a tighter memory budget; override
+profile debug settings explicitly when source-level debugging is needed. Release
+optimization remains enabled.
 
-> Swagger UI is served only when the `swagger` cargo feature is enabled. A plain
-> `cargo run` (without the feature) will **not** expose `/docs`.
+Development/test PostgreSQL has a 512 MiB container limit. Optional MeiliSearch and
+vLLM are bounded separately in Compose. The default application database pool is
+1–5 connections. Nextest runs one test process at a time because integration tests
+share a fixed disposable database; process-local mutexes cannot isolate them.
+Do not start multiple test workflows concurrently against the fixed test project.
 
-### Full local stack (with vLLM)
+## Database isolation and migrations
 
-For the complete stack (app + PostgreSQL + MeiliSearch + vLLM serving the embedding
-model), the [`justfile`](justfile) provides recipes to build and start it, and to stop
-it. Pinned image tags and vLLM resource/CLI tuning live in
-[`docker-compose.build.yml`](docker-compose.build.yml).
+| Environment | Database identity | Data lifecycle |
+| --- | --- | --- |
+| Development | `luna_dev@127.0.0.1:5434/luna_dev` | Persistent `.local/dev` |
+| Test | `luna_test@127.0.0.1:5433/luna_test` | Disposable named volumes and `.local/test` |
 
-## Database and migrations
+The safe environment loader clears inherited database, Compose, search, and asset
+variables before loading the selected file. Use the recipes instead of sourcing
+dotenv files. Connections and migrations validate `APP_ENV`, protocol, host, port,
+user, and database. Database integration tests additionally require `APP_ENV=test`.
+Keep these guards when changing workflows.
 
-The application only connects to the database; it never migrates on startup. `just dev` explicitly applies forward migrations before starting the application.
+The application never migrates on startup. Use `just migrate-up` and
+`just migrate-status` for development; [migration/README.md](migration/README.md)
+describes the migration entry points. Destructive migration commands are rejected
+in production.
 
-Use `just migrate-up` or `just migrate-status` for normal development. The compatibility wrapper [`migrate.sh`](migrate.sh) requires an explicit command, for example `./migrate.sh status`; running it without a command fails safely.
+Never point tests at production or mount a production data directory into a test
+container. An explicitly authorized read-only export may be restored into a separate
+disposable database for investigation. Keep its credentials, volumes, assets, and
+ports isolated, and do not commit or publish the copied data.
 
-Every connection and migration validates `APP_ENV`, protocol, host, port, user, and database name before opening a connection. Destructive migration commands are permanently rejected in production.
-
-## Testing and quality
-
-Run `just test`. It always removes the fixed `lunirelust-test` project and its named volumes before and after the suite, starts isolated services, applies migrations, runs nextest and doctests, and cleans `.local/test`.
-
-Run `just check` for static checks or `just ci` for the same gate used by CI. Inherited database, Compose project, PostgreSQL, Meilisearch, and assets variables are cleared before the selected environment file is loaded, so a terminal left with production variables cannot redirect tests.
-
-Database integration tests intentionally fail when run without the test environment; use `just test`. Pure unit tests remain runnable directly.
-
-### Pre-commit hooks
-
-The hooks (configured in [`.pre-commit-config.yaml`](.pre-commit-config.yaml)) enforce
-repo hygiene, formatting, linting, dependency, and typo gates across the workspace.
-They do **not** replace the test suite — run the full suite via the justfile instead.
-Run them on demand:
-
-```bash
-pre-commit run --all-files
-```
-
-The project keeps a strict lint stance (defined in the `Cargo.toml` workspace lints and
-enforced by CI).
-
-
-## Contribution workflow
-
-### Branch model
-
-- **Superproject**: default branch `master`. Work on topic branches such as `fix/...`,
-  `feat/...`, or `dev/...`, and integrate via pull requests. Most history is linear
-  (squash merges), with the PR number recorded in the merge title — e.g. branch
-  `fix/vector-backfill` became `Fix/vector backfill (#6)`.
-- **Submodule** (`subm`): default branch `main`, with a long-lived `dev` branch.
-  History there is mostly direct Conventional-Commits pushes.
-
-### Commit message conventions
-
-The project uses Conventional Commits, in English. A `<type>: <summary>` subject,
-optionally with a scope, and a bulleted body when the change is non-trivial. Types and
-scopes observed in history:
-
-- Types: `feat`, `fix`, `chore`, `perf`.
-- Scopes (optional, in parens): `(crawl)`, `(backup)`, `(record)` — most commits omit
-  the scope.
-
-Examples from the actual logs:
-
-```
-fix: update luneth dependency to latest commit
-feat(crawl): update API version to 1.0.0 and add append_page_path toggle for pagination
-fix(backup): enhance restore functionality to handle separate snapshots for assets and database
-perf: Resolve server performance bottlenecks and deployment loading issues ...
-```
-
-For larger changes, follow the bulleted-body format in
-[`subm/docs/template/commit-message-template.md`](subm/docs/template/commit-message-template.md):
-one summary sentence per module, no file paths, no business-domain jargon, no
-self-promotion.
-
-## Working with the submodule
-
-The superproject stores `subm` as a raw commit SHA (a "gitlink"), not a branch name:
-`git ls-tree HEAD subm` prints `160000 commit <sha> subm`. That SHA **must exist on the
-submodule's remote**, otherwise any fresh clone fails at `git submodule update`.
-
-### Avoid dangling commits
-
-`git submodule update` checks out the recorded SHA, leaving the submodule in **detached
-HEAD**. Commits made there advance only `HEAD` — no branch — so they become unreachable
-from any ref and `git push` will not send them. If you then record that SHA in the
-superproject, it points at a commit that exists only on your machine. Two habits prevent
-this: **always check out a branch before editing the submodule, and push the submodule
-before you record its SHA in the superproject.**
-
-### Make a change in the submodule
+## Verification
 
 ```bash
-cd subm
-git checkout main            # never commit in detached HEAD
-git pull
-# ... edit, commit (Conventional Commits, English) ...
-git push origin main         # push BEFORE recording the SHA in the superproject
-git rev-parse HEAD           # this is the SHA the parent will record
-cd ..
-
-# defensive check: must list origin/main; empty output = STOP and push the submodule first
-git -C subm branch -r --contains $(git -C subm rev-parse HEAD)
-
-git add subm && git commit -m "chore: update submodule to latest commit"
-git push origin master
+just check  # Formatting check and clippy (which also type-checks all targets)
+just test   # PostgreSQL, migrations, nextest, and doctests
+just test-search # Also run the live MeiliSearch integration coverage
+just ci     # check followed by test
+just audit  # cargo-deny and typos; requires those tools
 ```
 
-### Pull submodule updates from others
+`just test` destroys the fixed test project and volumes before starting, then cleans
+them after the suite. `just test-db` creates the same disposable environment for
+manual debugging; `just test-db-down` removes it. Direct database integration tests
+must use the test configuration. The default suite intentionally omits live MeiliSearch coverage. `just test-search`
+starts MeiliSearch, waits for HTTP health, and runs the same suite. Semantic-service
+failure and recovery cases use local deterministic fakes; no GPU is needed for tests.
 
-```bash
-git pull --recurse-submodules
-```
+The root [.pre-commit-config.yaml](.pre-commit-config.yaml) runs repository hygiene
+checks and Rust formatting for Rust changes. It does not start containers or run the
+full suite for a documentation commit. Install `pre-commit` and run `pre-commit install`
+to enable it; `pre-commit run --all-files` checks the whole checkout. Full validation
+remains `just ci`, plus `just test-search` when search behavior changes.
 
+GitHub CI runs static checks once, spelling checks, and the reusable database test
+workflow with MeiliSearch coverage. Tagged image publication depends on static checks,
+database tests, and platform builds. Passing CI does not by itself establish that
+remote branch protection is enabled.
 
-## Changelog and release
+## Contributions and the private submodule
 
-Both processes are documented elsewhere; this section only points to the sources of
-truth.
+Use a topic branch (normally `codex/`, `fix/`, or `feat/`) and a focused reviewable
+diff. New comments, documentation, and commit messages are English. New documentation
+filenames use Chinese; established entry points such as `README.md` remain stable.
+Follow workspace Rust lints and the existing directory-plus-same-name-file module
+layout. Conventional Commit subjects use `type(scope): summary` with optional scope.
 
-- **Changelog** — follow [`subm/docs/template/change-history-template.md`](subm/docs/template/change-history-template.md)
-  and **prepend** each entry to [`subm/docs/changelog.md`](subm/docs/changelog.md). The
-  template (and `subm/CLAUDE.md`) define the language and heading rules.
-- **Release** — the full flow (version bump, tag, CI build/release/docker, deploy) lives
-  in [`subm/README.md`](subm/README.md).
+Keep credentials, deployment configuration, host details, backups, and real data
+out of the public repository and build context. The public contributor rules in
+[CLAUDE.md](CLAUDE.md) work without private documentation access. OpenSpec is retired;
+its private archive is historical evidence, not an active change workflow. Keep
+current documentation short and update it with the behavior it describes.
 
+`subm` is a separate Git repository; the parent records a commit SHA, not a branch.
+Check out a topic branch inside it before editing. When publishing changes, push the
+private commit first, verify that a remote branch contains it, and only then record
+the gitlink in the public repository. A private commit that exists only locally
+breaks fresh submodule checkouts. Recover detached commits through the submodule
+reflog before changing the recorded pointer.
 
-## Troubleshooting and common pitfalls
-
-- **`git submodule update` fails with `upload-pack: not our ref <sha>`** — the
-  superproject points at a submodule commit that was never pushed (typically made in
-  detached HEAD). Diagnose and fix per
-  [Working with the submodule](#working-with-the-submodule). The defensive check there
-  prevents it.
-- **`/docs` (Swagger) is not served** — the `swagger` cargo feature must be enabled; a
-  plain `cargo run` (without it) will not expose `/docs`. See [Running locally](#running-locally).
-- **Search integration tests silently skip** — expected when no live MeiliSearch is
-  running. Use the justfile to bring up the `.env.test` stack.
-- **Pre-commit inside the submodule may fail on the cargo hooks** —
-  [`subm/.pre-commit-config.yaml`](subm/.pre-commit-config.yaml) runs the Rust hooks
-  with `cd lustools/lust`, but the actual crate lives at `subm/lust/`. If you run
-  pre-commit from within the submodule, correct that path first. (The superproject's
-  own [`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical one and is
-  not affected.)
-- **"My submodule commits vanished after I switched branches"** — they were made in
-  detached HEAD and are now only reachable via `git -C subm reflog`. Recover them, put
-  them on `main`, and push — see the correct sequence above.
+Release and deployment procedures are in the [private index](subm/README.md) and
+[deployment guide](subm/luna/README.md). Generated OpenAPI snapshots are documented
+in [the API generation guide](subm/docs/api/生成说明.md); edit Rust API declarations
+and regenerate snapshots from a local server instead of hand-editing schemas.

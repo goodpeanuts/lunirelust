@@ -154,6 +154,8 @@ impl DirectorAffinityRepository for DirectorRepo {
         // always positive (M_V, M_L > 0) so there is no division by zero.
         // Directors relate to records via record.director_id (foreign key), so
         // the aggregate groups records directly (no junction table).
+        // Catalog/junction keys and (user_id, record_id) are unique, so this
+        // join cannot multiply a work. DISTINCT would only add redundant sorting.
         let select_sql = format!(
             "SELECT d.id, d.name, d.link, d.manual, \
              COALESCE( \
@@ -167,9 +169,9 @@ impl DirectorAffinityRepository for DirectorRepo {
              FROM director d \
              LEFT JOIN ( \
                SELECT r.director_id AS entity_id, \
-                      COUNT(DISTINCT r.id) AS total, \
-                      COUNT(DISTINCT r.id) FILTER (WHERE uri.viewed) AS viewed, \
-                      COUNT(DISTINCT r.id) FILTER (WHERE uri.liked AND uri.viewed) AS liked \
+                      COUNT(r.id) AS total, \
+                      COUNT(r.id) FILTER (WHERE uri.viewed) AS viewed, \
+                      COUNT(r.id) FILTER (WHERE uri.liked AND uri.viewed) AS liked \
                FROM record r \
                LEFT JOIN user_record_interaction uri \
                       ON uri.record_id = r.id AND uri.user_id = $1 \

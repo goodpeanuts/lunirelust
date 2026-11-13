@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
@@ -18,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct StudioService {
     db: DatabaseConnection,
+    search_backend: SearchBackend,
     repo: Arc<dyn StudioRepository + Send + Sync>,
     /// Separate handle for affinity-ordered listing. A `dyn StudioRepository`
     /// object cannot expose `StudioAffinityRepository` methods, so the affinity
@@ -27,9 +29,13 @@ pub struct StudioService {
 
 #[async_trait]
 impl StudioServiceTrait for StudioService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn StudioServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn StudioServiceTrait> {
         Arc::new(Self {
             db: db.clone(),
+            search_backend,
             repo: Arc::new(StudioRepo),
             affinity_repo: Arc::new(StudioRepo),
         })
@@ -107,6 +113,7 @@ impl StudioServiceTrait for StudioService {
         if was_created {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Studio,
                 studio_id,
                 &entity_name,
@@ -127,10 +134,14 @@ impl StudioServiceTrait for StudioService {
     ) -> Result<StudioDto, AppError> {
         let txn = self.db.begin().await?;
 
-        let pre_affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Studio, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let pre_affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Studio,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let studio = match self.repo.update(&txn, id, update_dto).await {
             Ok(Some(s)) => s,
@@ -146,12 +157,19 @@ impl StudioServiceTrait for StudioService {
 
         let surviving_id = studio.id;
         if surviving_id != id {
-            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Studio, id, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_entity_delete(
+                &txn,
+                self.search_backend,
+                SearchEntityType::Studio,
+                id,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             let mut all_affected = pre_affected.clone();
             let surviving_affected = search_outbox::find_affected_record_ids(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Studio,
                 surviving_id,
             )
@@ -162,6 +180,7 @@ impl StudioServiceTrait for StudioService {
             all_affected.dedup();
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Studio,
                 surviving_id,
                 &studio.name,
@@ -169,12 +188,13 @@ impl StudioServiceTrait for StudioService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &all_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &all_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         } else {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Studio,
                 id,
                 &studio.name,
@@ -182,7 +202,7 @@ impl StudioServiceTrait for StudioService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &pre_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         }
@@ -194,9 +214,14 @@ impl StudioServiceTrait for StudioService {
     async fn delete_studio(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
 
-        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Studio, id)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Studio,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         match self.repo.delete(&txn, id).await {
             Ok(true) => {}
@@ -210,10 +235,16 @@ impl StudioServiceTrait for StudioService {
             }
         }
 
-        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Studio, id, affected.clone())
-            .await
-            .map_err(AppError::DatabaseError)?;
-        search_outbox::outbox_fanout_records(&txn, &affected)
+        search_outbox::outbox_entity_delete(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Studio,
+            id,
+            affected.clone(),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, self.search_backend, &affected)
             .await
             .map_err(AppError::DatabaseError)?;
 

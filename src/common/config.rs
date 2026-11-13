@@ -2,6 +2,7 @@ use super::environment::{validate_database_target, AppEnv, DatabaseOperation, En
 use regex::Regex;
 use sea_orm::{ConnectOptions, DatabaseConnection, DbErr};
 use std::env;
+use std::str::FromStr;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
@@ -21,6 +22,43 @@ const DB_IDLE_TIMEOUT_SECS: u64 = 600;
 
 /// Database max lifetime in seconds.
 const DB_MAX_LIFETIME_SECS: u64 = 1800;
+
+/// Search infrastructure selected for this application instance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchBackend {
+    /// Query the primary database without maintaining an external index.
+    #[default]
+    Postgres,
+    /// Maintain a keyword index without contacting an embedding service.
+    MeiliKeyword,
+    /// Add optional semantic retrieval to the keyword index.
+    MeiliHybrid,
+}
+
+impl SearchBackend {
+    pub fn indexing_enabled(self) -> bool {
+        self != Self::Postgres
+    }
+
+    pub fn embeddings_enabled(self) -> bool {
+        self == Self::MeiliHybrid
+    }
+}
+
+impl FromStr for SearchBackend {
+    type Err = ConfigError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "postgres" => Ok(Self::Postgres),
+            "meili-keyword" => Ok(Self::MeiliKeyword),
+            "meili-hybrid" => Ok(Self::MeiliHybrid),
+            _ => Err(ConfigError::InvalidSearchBackend {
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
 
 /// Config is a struct that holds the configuration for the application.
 #[derive(Clone)]
@@ -45,6 +83,8 @@ pub struct Config {
 
     pub cors_origins: Vec<String>,
 
+    pub search_backend: SearchBackend,
+
     // MeiliSearch configuration
     pub meili_url: String,
     pub meili_master_key: String,
@@ -62,6 +102,9 @@ pub enum ConfigError {
 
     #[error("required environment variable {name} is not set")]
     MissingVariable { name: &'static str },
+
+    #[error("invalid SEARCH_BACKEND {value:?}; expected postgres, meili-keyword, or meili-hybrid")]
+    InvalidSearchBackend { value: String },
 }
 
 /// Errors raised while preparing a database connection for integration tests.
@@ -105,11 +148,11 @@ impl Config {
             database_url,
 
             database_max_connections: env::var("DATABASE_MAX_CONNECTIONS")
-                .map(|s| s.parse::<u32>().unwrap_or(20))
-                .unwrap_or(20),
-            database_min_connections: env::var("DATABASE_MIN_CONNECTIONS")
                 .map(|s| s.parse::<u32>().unwrap_or(5))
                 .unwrap_or(5),
+            database_min_connections: env::var("DATABASE_MIN_CONNECTIONS")
+                .map(|s| s.parse::<u32>().unwrap_or(1))
+                .unwrap_or(1),
 
             service_host: required_var("SERVICE_HOST")?,
             service_port: required_var("SERVICE_PORT")?,
@@ -137,6 +180,9 @@ impl Config {
                 .map(|s| s.split(',').map(|o| o.trim().to_owned()).collect())
                 .unwrap_or_default(),
 
+            search_backend: env::var("SEARCH_BACKEND")
+                .unwrap_or_else(|_| "postgres".to_owned())
+                .parse()?,
             meili_url: env::var("MEILI_URL").unwrap_or_else(|_| "http://localhost:7700".to_owned()),
             meili_master_key: env::var("MEILI_MASTER_KEY")
                 .unwrap_or_else(|_| "meili_master_key_dev".to_owned()),
@@ -214,6 +260,29 @@ mod tests {
     use super::{setup_test_database, Config, TestDatabaseSetupError, DEFAULT_MAX_FILE_SIZE};
     use crate::common::environment::AppEnv;
 
+    #[test]
+    fn search_backend_defaults_to_postgres_and_rejects_unknown_modes() {
+        use super::SearchBackend;
+
+        assert_eq!(SearchBackend::default(), SearchBackend::Postgres);
+        for (value, backend) in [
+            ("postgres", SearchBackend::Postgres),
+            ("meili-keyword", SearchBackend::MeiliKeyword),
+            ("meili-hybrid", SearchBackend::MeiliHybrid),
+        ] {
+            assert_eq!(
+                value.parse::<SearchBackend>().expect("valid backend"),
+                backend
+            );
+        }
+        for value in ["", "meili", "hybrid", "POSTGRES", "postgres "] {
+            assert!(
+                value.parse::<SearchBackend>().is_err(),
+                "accepted {value:?}"
+            );
+        }
+    }
+
     fn config_for(app_env: AppEnv, database_url: &str) -> Config {
         Config {
             app_env,
@@ -231,6 +300,7 @@ mod tests {
             asset_allowed_extensions: vec!["jpg".to_owned(), "png".to_owned()],
             asset_max_size: DEFAULT_MAX_FILE_SIZE,
             cors_origins: vec![],
+            search_backend: super::SearchBackend::Postgres,
             meili_url: "http://127.0.0.1:7700".to_owned(),
             meili_master_key: "test-key".to_owned(),
             vllm_embedding_url: "http://127.0.0.1:8000".to_owned(),

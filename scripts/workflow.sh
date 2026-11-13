@@ -7,6 +7,13 @@ cd "$repo_root"
 dev_compose=(docker compose --project-name lunirelust-dev --env-file .env -f compose.dev.yml)
 test_compose=(docker compose --project-name lunirelust-test --env-file .env.test -f compose.test.yml)
 
+case "${SEARCH_BACKEND:-postgres}" in
+    postgres) ;;
+    meili-keyword) dev_compose+=(--profile search) ;;
+    meili-hybrid) dev_compose+=(--profile hybrid) ;;
+    *) echo "invalid SEARCH_BACKEND" >&2; exit 2 ;;
+esac
+
 start_dev_infrastructure() {
     mkdir -p "$repo_root/.local/dev/postgres" "$repo_root/.local/dev/meilisearch"
     "${dev_compose[@]}" up -d --wait
@@ -44,7 +51,7 @@ validated_test_root() {
 cleanup_test() {
     local test_root
     test_root="$(validated_test_root)"
-    "${test_compose[@]}" down -v --remove-orphans
+    "${test_compose[@]}" --profile search down -v --remove-orphans
     rm -rf -- "$test_root"
 }
 
@@ -57,10 +64,13 @@ start_test_infrastructure() {
     install -m 0644 "$repo_root/assets/private/profile_picture/images.jpeg" \
         "$repo_root/.local/test/assets/private/profile_picture/images.jpeg"
     "${test_compose[@]}" up -d --wait
+    if [[ "${1:-}" == "search" ]]; then
+        curl --fail --silent --show-error --retry 20 --retry-delay 1 \
+            --retry-connrefused --max-time 2 "http://127.0.0.1:7701/health" >/dev/null
+    fi
 }
 
 run_test_suite() {
-    start_test_infrastructure
     cleanup_on_exit() {
         local status=$?
         trap - EXIT INT TERM
@@ -68,6 +78,8 @@ run_test_suite() {
         exit "$status"
     }
     trap cleanup_on_exit EXIT INT TERM
+
+    start_test_infrastructure "${1:-}"
 
     cargo run --quiet -p migration -- up
     cargo nextest run --all-features
@@ -88,10 +100,20 @@ case "${1:-}" in
         start_dev_infrastructure
         ;;
     dev-down)
-        "${dev_compose[@]}" down --remove-orphans
+        "${dev_compose[@]}" --profile hybrid down --remove-orphans
         ;;
     test)
         run_test_suite
+        ;;
+    test-search)
+        test_compose+=(--profile search)
+        run_test_suite search
+        ;;
+    build)
+        "${dev_compose[@]}" -f docker-compose.build.yml up -d --build
+        ;;
+    build-down)
+        "${dev_compose[@]}" -f docker-compose.build.yml --profile hybrid down --remove-orphans
         ;;
     test-up)
         start_test_infrastructure
@@ -109,7 +131,7 @@ case "${1:-}" in
         exec cargo run -p migration -- "$@"
         ;;
     *)
-        echo "usage: $0 {dev|dev-infra|dev-down|test|test-up|test-down|migrate}" >&2
+        echo "usage: $0 {dev|dev-infra|dev-down|test|test-search|test-up|test-down|build|build-down|migrate}" >&2
         exit 2
         ;;
 esac

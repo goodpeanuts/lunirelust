@@ -1,0 +1,4 @@
+# Integration binaries share the fixed disposable database. Per-process mutexes
+# cannot serialize nextest processes, so the default suite runs one test at a time.
+[profile.default]
+test-threads = 1

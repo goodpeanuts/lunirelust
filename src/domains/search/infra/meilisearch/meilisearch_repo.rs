@@ -1,5 +1,7 @@
 //! `MeiliSearch` repository implementation for `SearchRepository` trait.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use async_trait::async_trait;
 use serde_json::{json, Value as JsonValue};
 
@@ -22,6 +24,8 @@ pub struct MeiliSearchRepo {
     pub(super) client: MeiliSearchClient,
     /// HTTP client used for raw API calls (vector search, fetch, task polling).
     pub(super) http: reqwest::Client,
+    pub(super) embeddings_enabled: bool,
+    pub(super) hybrid_ready: AtomicBool,
 }
 
 const DOCUMENT_FETCH_FIELDS: [&str; 15] = [
@@ -43,11 +47,22 @@ const DOCUMENT_FETCH_FIELDS: [&str; 15] = [
 ];
 
 impl MeiliSearchRepo {
+    #[cfg(test)]
     pub fn new(client: MeiliSearchClient) -> Self {
+        Self::with_embeddings(client, true)
+    }
+
+    pub fn with_embeddings(client: MeiliSearchClient, embeddings_enabled: bool) -> Self {
         Self {
             client,
             http: reqwest::Client::new(),
+            embeddings_enabled,
+            hybrid_ready: AtomicBool::new(false),
         }
+    }
+
+    pub fn is_hybrid_ready(&self) -> bool {
+        self.hybrid_ready.load(Ordering::Relaxed)
     }
 
     fn bearer_token(&self) -> String {
@@ -894,5 +909,86 @@ mod tests {
             !still_missing.contains(&"record__keep-vec"),
             "normalize must not strip an existing vector: {still_missing:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn integration_populated_keyword_index_supports_hybrid_and_keyword_transitions() {
+        if std::env::var("APP_ENV").as_deref() != Ok("test") {
+            return;
+        }
+        let url = std::env::var("MEILI_URL").expect("isolated test Meili URL");
+        assert_eq!(
+            url, "http://127.0.0.1:7701",
+            "live search tests must use the fixed test endpoint"
+        );
+        let key = std::env::var("MEILI_MASTER_KEY").expect("test Meili key");
+        let index_name = format!("luna_search_test_modes_{}", uuid::Uuid::new_v4().simple());
+        let keyword = MeiliSearchRepo::with_embeddings(
+            MeiliSearchClient::new(&url, &key, &index_name),
+            false,
+        );
+        if !keyword.health_check().await {
+            tracing::info!("skipping optional Meili transition test: test service unavailable");
+            return;
+        }
+        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+            keyword.init_index().await?;
+            keyword
+                .batch_upsert(&[record_doc("transition", None)])
+                .await?;
+            let hybrid = MeiliSearchRepo::with_embeddings(
+                MeiliSearchClient::new(&url, &key, &index_name),
+                true,
+            );
+            hybrid.init_index().await?;
+            if !hybrid.is_hybrid_ready() {
+                return Err("populated keyword index did not enable hybrid search".into());
+            }
+            let vector = vec![0.1; TEST_EMBEDDING_DIM];
+            hybrid
+                .batch_upsert(&[record_doc("transition", Some(json!({"default": vector})))])
+                .await?;
+            let results = hybrid
+                .vector_search(&vector, &[SearchEntityType::Record], "", 10, 0)
+                .await?;
+            if !results
+                .hits
+                .iter()
+                .any(|hit| hit.doc_id == "record__transition")
+            {
+                return Err("hybrid transition did not produce a searchable vector".into());
+            }
+            let keyword_again = MeiliSearchRepo::with_embeddings(
+                MeiliSearchClient::new(&url, &key, &index_name),
+                false,
+            );
+            keyword_again.init_index().await?;
+            let mut updated = record_doc("transition", None);
+            updated.title = "Updated keyword fixture".to_owned();
+            keyword_again.batch_upsert(&[updated]).await?;
+            let results = keyword_again
+                .keyword_search("Updated keyword fixture", &[], "", 10, 0)
+                .await?;
+            if keyword_again.is_hybrid_ready() || results.hits.len() != 1 {
+                return Err("keyword transition failed to retain keyword indexing".into());
+            }
+            let (missing_vectors, _) = keyword_again.find_records_missing_vectors(0, 10).await?;
+            if missing_vectors.len() != 1 {
+                return Err("keyword update did not opt out of its stale vector".into());
+            }
+            Ok(())
+        }
+        .await;
+        let cleanup = keyword
+            .client
+            .client
+            .delete_index(&index_name)
+            .await
+            .expect("delete transition test index");
+        keyword
+            .wait_for_task_with_debug(cleanup.get_task_uid(), "test_delete_index")
+            .await
+            .expect("test index cleanup");
+        result.expect("keyword/hybrid transitions must preserve indexing");
     }
 }

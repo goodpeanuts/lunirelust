@@ -151,6 +151,8 @@ impl GenreAffinityRepository for GenreRepo {
         // positive (M_V, M_L > 0) so there is no division by zero.
         // Genres relate to records many-to-many via record_genre, so the
         // aggregate groups the junction rows (like idol_participation).
+        // Catalog/junction keys and (user_id, record_id) are unique, so this
+        // join cannot multiply a work. DISTINCT would only add redundant sorting.
         let select_sql = format!(
             "SELECT g.id, g.name, g.link, g.manual, \
              COALESCE( \
@@ -164,9 +166,9 @@ impl GenreAffinityRepository for GenreRepo {
              FROM genre g \
              LEFT JOIN ( \
                SELECT rg.genre_id, \
-                      COUNT(DISTINCT rg.record_id) AS total, \
-                      COUNT(DISTINCT rg.record_id) FILTER (WHERE uri.viewed) AS viewed, \
-                      COUNT(DISTINCT rg.record_id) FILTER (WHERE uri.liked AND uri.viewed) AS liked \
+                      COUNT(rg.record_id) AS total, \
+                      COUNT(rg.record_id) FILTER (WHERE uri.viewed) AS viewed, \
+                      COUNT(rg.record_id) FILTER (WHERE uri.liked AND uri.viewed) AS liked \
                FROM record_genre rg \
                LEFT JOIN user_record_interaction uri \
                       ON uri.record_id = rg.record_id AND uri.user_id = $1 \
