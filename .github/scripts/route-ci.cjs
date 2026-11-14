@@ -1,6 +1,5 @@
 // PR runs validate the merge result; branch pushes only need a second full run
 // when no open PR already owns that verification.
-throw new Error('Intentional CI gate failure rehearsal; restore before merge.');
 module.exports = async function route({ github, context, core }) {
   let run = true;
   const branch = context.ref.replace(/^refs\/heads\//, '');
