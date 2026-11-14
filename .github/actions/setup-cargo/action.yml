@@ -1,0 +1,40 @@
+name: Prepare Cargo
+description: Restore public dependencies/build outputs and fetch private sources without persistent credentials
+inputs:
+  cache-key:
+    description: Distinguish feature sets and release targets
+    required: true
+  target:
+    description: Optional Rust compilation target
+    default: ''
+  credentials:
+    description: Read access to the private Rust dependency
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: '1.92'
+        components: rustfmt,clippy
+        targets: ${{ inputs.target }}
+    - uses: actions/cache@v4
+      with:
+        # Do not cache ~/.cargo/git: it contains the private dependency's source.
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/registry/src
+          target
+        key: cargo-safe-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-key }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain', '.cargo/config.toml') }}
+        restore-keys: |
+          cargo-safe-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-key }}-
+    - name: Fetch locked dependencies
+      shell: bash
+      env:
+        GIT_CREDENTIALS: ${{ inputs.credentials }}
+        CARGO_TARGET: ${{ inputs.target }}
+      run: |
+        arguments=()
+        if [[ -n "$CARGO_TARGET" ]]; then arguments+=(--target "$CARGO_TARGET"); fi
+        bash .github/scripts/fetch-dependencies.sh "${arguments[@]}"
