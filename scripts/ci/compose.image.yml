@@ -1,0 +1,28 @@
+# Combined with the shared middleware model and disposable test overlay.
+services:
+  postgres:
+    ports: !reset []
+
+  meilisearch:
+    ports: !reset []
+
+  app:
+    image: ${LUNIRELUST_CI_IMAGE_ID:?the checked image ID is required}
+    pull_policy: never
+    restart: "no"
+    mem_limit: 1g
+    cpus: 2.0
+    env_file: .env.test
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgres://luna_test:luna_test@postgres:5432/luna_test
+      SEARCH_BACKEND: postgres
+      SERVICE_HOST: 0.0.0.0
+      SERVICE_PORT: '8012'
+      ASSETS_PUBLIC_PATH: /app/assets/public
+      ASSETS_PRIVATE_PATH: /app/assets/private
+    volumes:
+      - image-assets:/app/assets
+
+volumes:
+  image-assets:

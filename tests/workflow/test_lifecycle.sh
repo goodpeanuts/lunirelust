@@ -16,11 +16,11 @@ set -euo pipefail
 for argument in "$@"; do
     if [[ "$argument" == config ]]; then exec "$REAL_DOCKER" "$@"; fi
 done
-if [[ "$*" == *"-f docker-compose.build.yml up"* ]]; then
-    for directory in .local/dev/postgres .local/dev/meilisearch "$ASSETS_HOME_PATH" \
-        "$ASSETS_DATA_PATH" "$ASSETS_PUBLIC_PATH" "$ASSETS_PRIVATE_PATH"; do
+if [[ "$*" == *"-f compose.dev.yml up"* ]]; then
+    for directory in .local/dev/postgres .local/dev/meilisearch \
+        "$ASSETS_PUBLIC_PATH" "$ASSETS_PRIVATE_PATH"; do
         [[ -d "$directory" && -w "$directory" ]] || {
-            echo "development directory was not prepared before build startup" >&2
+            echo "development directory was not prepared before startup" >&2
             exit 1
         }
     done
@@ -86,16 +86,17 @@ expect_failure "$unsafe_test/scripts/env-run.sh" .env.test "$unsafe_test/scripts
 [[ ! -e "$unsafe_test/.local" ]] || fail "unsafe test asset input created local directories"
 [[ ! -s "$EVENTS" ]] || fail "unsafe test asset input reached Docker or Cargo"
 
-# The retained build path must prepare writable bind mounts before Docker runs.
-"$first/scripts/env-run.sh" .env "$first/scripts/workflow.sh" build > "$scratch/build.log" 2>&1 \
-    || fail "retained build did not prepare development directories"
+# Native startup still prepares active paths without retired container settings.
+sed -i '/^\(DEPLOY_ENV_FILE\|ASSETS_HOME_PATH\|ASSETS_DATA_PATH\)=/d' "$first/.env"
+"$first/scripts/env-run.sh" .env "$first/scripts/workflow.sh" dev-infra > "$scratch/dev.log" 2>&1 \
+    || fail "native startup still requires retired container settings"
 
 legacy="$scratch/legacy"
 make_checkout "$legacy"
-printf '\nASSETS_HOME_PATH=assets\nASSETS_PUBLIC_PATH=assets/public\nASSETS_PRIVATE_PATH=assets/private\n' \
+printf '\nASSETS_PUBLIC_PATH=assets/public\nASSETS_PRIVATE_PATH=assets/private\n' \
     >> "$legacy/.env"
 rm -rf -- "$legacy/assets"
-"$legacy/scripts/env-run.sh" .env "$legacy/scripts/workflow.sh" build > "$scratch/legacy-build.log" 2>&1 \
+"$legacy/scripts/env-run.sh" .env "$legacy/scripts/workflow.sh" dev-infra > "$scratch/legacy-dev.log" 2>&1 \
     || fail "configured legacy development asset directories were not prepared"
 : > "$EVENTS"
 

@@ -192,8 +192,9 @@ pub fn validate_database_target(
         AppEnv::Test => {
             target.username == "luna_test"
                 && target.database == "luna_test"
-                && matches!(target.host.as_str(), "127.0.0.1" | "localhost")
-                && target.port == 5433
+                && ((matches!(target.host.as_str(), "127.0.0.1" | "localhost")
+                    && target.port == 5433)
+                    || (target.host == "postgres" && target.port == 5432))
         }
         AppEnv::Prod => {
             target.username == "luna_user"
@@ -209,7 +210,7 @@ pub fn validate_database_target(
 
     let expected = match app_env {
         AppEnv::Dev => "luna_dev@127.0.0.1:5434/luna_dev or luna_dev@postgres:5432/luna_dev",
-        AppEnv::Test => "luna_test@127.0.0.1:5433/luna_test",
+        AppEnv::Test => "luna_test@127.0.0.1:5433/luna_test or luna_test@postgres:5432/luna_test",
         AppEnv::Prod => "luna_user@luna-db:5432/luna_db",
     };
 
@@ -260,6 +261,22 @@ mod tests {
         for (app_env, database_url) in cases {
             validate_database_target(app_env, database_url, DatabaseOperation::Connect)
                 .expect("fixed target must be accepted");
+        }
+    }
+
+    #[test]
+    fn accepts_only_the_isolated_container_test_target() {
+        for operation in [
+            DatabaseOperation::Connect,
+            DatabaseOperation::Migrate,
+            DatabaseOperation::Destructive,
+        ] {
+            validate_database_target(
+                AppEnv::Test,
+                "postgres://luna_test:luna_test@postgres:5432/luna_test",
+                operation,
+            )
+            .expect("the isolated image test target must be accepted");
         }
     }
 
@@ -331,7 +348,19 @@ mod tests {
             ),
             (
                 AppEnv::Test,
-                "postgres://luna_test:secret@postgres:5432/luna_test",
+                "postgres://luna_user:secret@postgres:5432/luna_test",
+            ),
+            (
+                AppEnv::Test,
+                "postgres://luna_test:secret@postgres:5432/luna_db",
+            ),
+            (
+                AppEnv::Test,
+                "postgres://luna_test:secret@luna-db:5432/luna_test",
+            ),
+            (
+                AppEnv::Test,
+                "postgres://luna_test:secret@postgres:5433/luna_test",
             ),
             (AppEnv::Prod, "postgres://wrong:secret@luna-db:5432/luna_db"),
             (

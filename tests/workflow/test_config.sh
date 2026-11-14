@@ -8,6 +8,14 @@ make_checkout "$checkout"
 [[ -x "$checkout/scripts/check-config.sh" ]] || fail "read-only configuration check is missing"
 
 cp "$checkout/.env" "$scratch/original.env"
+# Retired container settings are neither required nor active path inputs.
+sed -i '/^\(DEPLOY_ENV_FILE\|ASSETS_HOME_PATH\|ASSETS_DATA_PATH\)=/d' "$checkout/.env"
+"$checkout/scripts/check-config.sh" dev > "$scratch/active-assets-only.log" 2>&1 \
+    || fail "native configuration still requires retired container settings"
+printf '\nDEPLOY_ENV_FILE=/unused\nASSETS_HOME_PATH=/unused\nASSETS_DATA_PATH=/unused\n' >> "$checkout/.env"
+"$checkout/scripts/check-config.sh" dev > "$scratch/retired-settings.log" 2>&1 \
+    || fail "retired container settings are still active"
+cp "$scratch/original.env" "$checkout/.env"
 "$checkout/scripts/check-config.sh" > "$scratch/initial-check.log"
 cmp -s "$scratch/original.env" "$checkout/.env" || fail "configuration check changed .env"
 rm "$checkout/.env"
@@ -17,14 +25,28 @@ cp "$scratch/original.env" "$checkout/.env"
 
 # Existing native checkouts can keep assets under their configured checkout paths.
 for prefix in "" "$checkout/"; do
-    printf '\nASSETS_HOME_PATH=%sassets\nASSETS_PUBLIC_PATH=%sassets/public\nASSETS_PRIVATE_PATH=%sassets/private\n' \
-        "$prefix" "$prefix" "$prefix" >> "$checkout/.env"
+    printf '\nASSETS_PUBLIC_PATH=%sassets/public\nASSETS_PRIVATE_PATH=%sassets/private\n' \
+        "$prefix" "$prefix" >> "$checkout/.env"
     "$checkout/scripts/check-config.sh" dev > "$scratch/legacy-assets.log" 2>&1 \
         || fail "legacy native asset paths inside the checkout were rejected"
     cp "$scratch/original.env" "$checkout/.env"
 done
 
-for key in ASSETS_HOME_PATH ASSETS_DATA_PATH ASSETS_PUBLIC_PATH ASSETS_PRIVATE_PATH; do
+# Runtime assets must not overlap any directory used as application build input.
+for key in ASSETS_PUBLIC_PATH ASSETS_PRIVATE_PATH; do
+    for directory in src migration .cargo .github; do
+        for prefix in "" "$checkout/"; do
+            for suffix in "" /private-runtime; do
+                printf '\n%s=%s%s%s\n' "$key" "$prefix" "$directory" "$suffix" >> "$checkout/.env"
+                expect_failure "$checkout/scripts/check-config.sh" dev
+                grep -q "$key" "$scratch/rejected.log" || fail "build-input overlap did not identify the asset key"
+                cp "$scratch/original.env" "$checkout/.env"
+            done
+        done
+    done
+done
+
+for key in ASSETS_PUBLIC_PATH ASSETS_PRIVATE_PATH; do
     printf '\n%s=.local/dev/postgres/review-missing/../../assets/public\n' "$key" >> "$checkout/.env"
     expect_failure "$checkout/scripts/check-config.sh" dev
     grep -q "$key" "$scratch/rejected.log" || fail "parent-path rejection did not identify the key"
@@ -33,7 +55,7 @@ for key in ASSETS_HOME_PATH ASSETS_DATA_PATH ASSETS_PUBLIC_PATH ASSETS_PRIVATE_P
 done
 
 cp "$checkout/.env.test" "$scratch/original-test.env"
-for entry in ASSETS_HOME_PATH=assets ASSETS_PUBLIC_PATH=assets/public ASSETS_PRIVATE_PATH=assets/private; do
+for entry in ASSETS_PUBLIC_PATH=assets/public ASSETS_PRIVATE_PATH=assets/private; do
     key="${entry%%=*}"
     printf '\n%s=.local/dev/postgres/review-missing/../../../test/%s\n' \
         "$key" "${entry#*=}" >> "$checkout/.env.test"

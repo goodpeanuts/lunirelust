@@ -23,3 +23,6 @@ vendor/
 .cargo/config.docker.toml
 
 .playwright*
+
+# Python validation helpers
+__pycache__/
