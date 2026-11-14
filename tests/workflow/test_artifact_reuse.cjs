@@ -6,9 +6,9 @@ const helper = path.resolve('.github/scripts/find-artifact.cjs');
 
 for (const [name, artifacts, expected] of [
   ['missing', [], 'false'],
-  ['present', [{ name: 'release-image', expired: false, id: 7 }], 'true'],
+  ['retained', [{ name: 'release-image', expired: false, id: 7 }], 'true'],
 ]) {
-  test(`same-run artifact reuse: ${name}`, async () => {
+  test(`artifact availability lookup: ${name}`, async () => {
     assert.ok(existsSync(helper), 'artifact reuse helper is missing');
     const outputs = {};
     await require(helper)({ name: 'release-image', context: { repo: { owner: 'test', repo: 'test' }, runId: 99 },
@@ -20,7 +20,7 @@ for (const [name, artifacts, expected] of [
   });
 }
 
-test('expired artifacts and API errors cannot authorize an unnoticed rebuild', async () => {
+test('explicitly expired artifact entries and API errors fail lookup', async () => {
   assert.ok(existsSync(helper), 'artifact reuse helper is missing');
   const args = { name: 'release-image', context: { repo: {}, runId: 99 },
     github: { rest: { actions: {} }, paginate: async () => [{ name: 'release-image', expired: true }] },

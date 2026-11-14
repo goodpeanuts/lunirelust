@@ -1,4 +1,6 @@
-// Reuse this run's immutable artifacts on retries; do not hide lookup failures.
+// Reuse an artifact only while GitHub still lists it for this run.
+// Full workflow reruns clear earlier artifacts; this lookup does not preserve them.
+// Propagate lookup errors and reject entries explicitly marked expired.
 module.exports = async function findArtifact({ github, context, core, name }) {
   const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
     ...context.repo, run_id: context.runId, per_page: 100,

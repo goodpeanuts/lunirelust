@@ -364,15 +364,34 @@ image-digest information; retries retain the published body.
 image ID (its configuration digest), and the compressed image archive checksum.
 `SHA256SUMS` covers the binaries and manifest; `publication.json` adds the registry
 manifest digest, which is distinct from the image ID and archive checksum. Workflow
-image and binary artifacts retain the original validated bytes for 14 days. The
-manual rehearsal manifest is retained for seven days. No intermediate image,
-private source cache, or build record is published.
+image and binary artifacts have a 14-day retention limit; manual rehearsal
+manifests use seven days. These settings do not preserve artifacts across a full
+workflow rerun. No intermediate image, private source cache, or build record is
+published.
 
 For a failed publication, inspect the original run, draft/released GitHub version,
-and registry version, then rerun the **same workflow run** with
-`gh run rerun <run-id> --failed`. A full rerun also checks and reuses that run's
-retained image and binary artifacts. Release lookup scans all pages, including
-drafts, so interrupted uploads resume against the original draft and assets.
+and registry version, then use `gh run rerun <run-id> --failed`. This leaves the
+successful image and binary producer jobs outside the retry. To retry only the
+final publication or rehearsal manifest job, select its database ID and rerun it:
+
+```bash
+gh run view <run-id> --json jobs --jq '.jobs[] | {name, databaseId}'
+gh run rerun <run-id> --job <job-database-id>
+```
+
+Partial reruns preserve unaffected jobs' outputs and leave their retained producer
+artifacts available to downstream jobs. See [GitHub's rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs).
+The artifact lookup helper reuses only artifacts still listed for that run; it
+does not preserve deleted artifacts or prove that a full rerun retains them.
+
+A full rerun (`gh run rerun <run-id>` without a selector, or **Re-run all jobs**)
+removes the prior artifact set and starts fresh builds. Use it only when intentionally
+rebuilding and repeating validation before publication starts. Once publication
+has started, use the partial retries above; a full rerun is unsuitable for recovery
+because it discards the original validated producer artifacts.
+
+Release lookup scans all pages, including drafts, so interrupted uploads resume
+against the original draft and assets.
 Ambiguous releases sharing a tag stop the run. Matching assets and version images
 are verified and skipped; different source identities, checksums, or image IDs stop
 the run instead of replacing anything. Authentication and network errors stop the
@@ -391,10 +410,11 @@ A legacy multi-manifest `latest` alias can be replaced, while formal version ima
 still require the single-platform image identity. A failure in final promotion
 leaves the completed version visible and the workflow failed until retry succeeds.
 
-After artifact expiry, do not assume a rebuild has the same bytes: base image,
-APT, and npm inputs can change. Recover the original validated bundle from a
-trusted retained copy through a separately reviewed recovery, or prepare a new
-version. Existing version tags/assets must still pass identity and checksum checks;
+If required producer artifacts are absent or expired, stop publication recovery;
+do not assume a rebuild has the same bytes. Base image, APT, and npm inputs can
+change. Recover the original validated bundle from a trusted retained copy through
+a separately reviewed recovery, or prepare a new version. Existing version
+tags/assets must still pass identity and checksum checks;
 the workflow never silently replaces them with rebuilt content. No release tag,
 publication, or production deployment is part of a validation-only rehearsal.
 
