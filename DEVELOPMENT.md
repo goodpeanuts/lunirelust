@@ -167,10 +167,33 @@ full suite for a documentation commit. Install `pre-commit` and run `pre-commit 
 to enable it; `pre-commit run --all-files` checks the whole checkout. Full validation
 remains `just ci`, plus `just test-search` when search behavior changes.
 
-GitHub CI runs static checks once, spelling checks, and the reusable database test
-workflow with MeiliSearch coverage. Tagged image publication depends on static checks,
-database tests, and platform builds. Passing CI does not by itself establish that
-remote branch protection is enabled.
+GitHub CI has three required checks: `static`, `test-postgres`, and `test-search`.
+The `ci-gate` check aggregates their results and fails if a selected check fails,
+is cancelled, or is unexpectedly skipped. Static validation includes configuration,
+workflow regressions, formatting, Clippy, and spelling. Database jobs use the same
+`just test` and `just test-search` commands as local development, on separate hosted
+runners. Run `node --test tests/workflow/*.cjs` for the CI routing and credential
+regressions; these use synthetic inputs and no network or services.
+
+A new branch push runs full checks. Once a PR is open, its merge result owns full
+validation and duplicate branch-push checks are skipped. New commits cancel obsolete
+runs for the same event and branch. Default-branch pushes always validate the merged
+result. Forks without private dependency access receive a failing gate; reviewed work
+must run in a trusted branch before merging. No untrusted head runs with secrets via
+`pull_request_target`.
+
+Daily CI provides private dependency credentials only to the locked fetch step, through
+a process-local Git helper. Subsequent Cargo commands run offline. Caches contain public
+registry dependencies and build outputs, excluding the private Git source checkout and
+persistent credentials. The existing tagged release jobs remain separate until the
+release workflow replacement; routine checks do not build or publish images.
+
+`master` requires PR integration and a successful `ci-gate`, with the branch up to date.
+Force-pushing and deleting the default branch are disabled. A second-person approval
+is not required for this single-maintainer project. Merge remotely after the final PR
+checks pass, then observe default-branch CI before synchronizing local checkouts.
+For paired changes, merge and verify the private PR first, update the public gitlink
+to that merged commit, and repeat the checks for the public PR.
 
 ## Contributions and the private submodule
 
