@@ -1,6 +1,9 @@
 // PR runs validate the merge result; branch pushes only need a second full run
 // when no open PR already owns that verification.
 module.exports = async function route({ github, context, core }) {
+  if (context.eventName === 'pull_request') {
+    throw new Error('Intentional PR gate and stale-run cancellation rehearsal; restore before merge.');
+  }
   let run = true;
   const branch = context.ref.replace(/^refs\/heads\//, '');
   const defaultBranch = context.payload?.repository?.default_branch || 'master';
