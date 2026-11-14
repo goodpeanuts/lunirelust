@@ -3,13 +3,22 @@ name: CI
 on:
   push:
     branches: ['**']
-    tags: ['v*']
   pull_request:
     types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
+    inputs:
+      full_release:
+        description: Build and validate the image and all seven binary targets without publishing
+        type: boolean
+        default: false
+  workflow_call:
+    secrets:
+      GIT_CREDENTIALS:
+        required: true
 
 permissions:
   contents: read
+  actions: read
   pull-requests: read
 
 concurrency:
@@ -64,6 +73,7 @@ jobs:
           just config-check
           just workflow-test
           node --test tests/workflow/*.cjs
+          python3 -m unittest discover -s tests/workflow -p 'test_*.py' -v
       - name: Run static Rust checks
         env:
           CARGO_NET_OFFLINE: 'true'
@@ -97,209 +107,41 @@ jobs:
             fi
           done
 
-  build:
-    # Platform builds only matter for releases; ordinary pushes are gated by
-    # the check job and the database test workflow.
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ${{ matrix.os }}
-    env:
-      CARGO_TERM_COLOR: always
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - os: macos-latest
-          TARGET: aarch64-apple-darwin
-          USE_CROSS: false
+  release-binaries:
+    needs: gate
+    if: github.event_name == 'workflow_dispatch' && inputs.full_release
+    uses: ./.github/workflows/release-binaries.yml
+    secrets: inherit
 
-        - os: macos-latest
-          TARGET: x86_64-apple-darwin
-          USE_CROSS: false
+  release-image:
+    needs: gate
+    if: github.event_name == 'workflow_dispatch' && inputs.full_release
+    uses: ./.github/workflows/image.yml
+    secrets: inherit
 
-        - os: ubuntu-latest
-          TARGET: arm-unknown-linux-musleabihf
-          USE_CROSS: true
-
-        - os: ubuntu-latest
-          TARGET: armv7-unknown-linux-musleabihf
-          USE_CROSS: true
-
-        - os: ubuntu-latest
-          TARGET: x86_64-unknown-linux-musl
-          USE_CROSS: false
-
-        - os: windows-latest
-          TARGET: x86_64-pc-windows-msvc
-          USE_CROSS: false
-          EXTENSION: .exe
-
-        - os: ubuntu-latest
-          TARGET: x86_64-unknown-linux-gnu
-          USE_CROSS: false
-
-    steps:
-    - name: Building ${{ matrix.TARGET }}
-      run: echo "${{ matrix.TARGET }}"
-
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: 1.92
-        targets: ${{ matrix.TARGET }}
-
-    - name: Configure git for private dependencies
-      run: git config --global url."https://x-access-token:${{ secrets.GIT_CREDENTIALS }}@github.com/".insteadOf "https://github.com/"
-
-    - name: Install cross
-      if: matrix.USE_CROSS == true
-      uses: taiki-e/install-action@v2
-      with:
-        tool: cross
-
-    # Install musl tools for Linux musl targets
-    - name: Install musl tools
-      if: matrix.TARGET == 'x86_64-unknown-linux-musl'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y musl-tools
-
-    - name: Run build (with cross)
-      if: matrix.USE_CROSS == true
-      run: cross build --verbose --release --target=${{ matrix.TARGET }}
-
-    - name: Run build (without cross)
-      if: matrix.USE_CROSS == false
-      run: cargo build --verbose --release --target=${{ matrix.TARGET }}
-
-    - name: Build migration tool (with cross)
-      if: matrix.USE_CROSS == true
-      run: cross build --verbose --release --target=${{ matrix.TARGET }} -p migration
-
-    - name: Build migration tool (without cross)
-      if: matrix.USE_CROSS == false
-      run: cargo build --verbose --release --target=${{ matrix.TARGET }} -p migration
-
-    - name: Upload main artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: lunirelust-${{ matrix.TARGET }}
-        path: target/${{ matrix.TARGET }}/release/lunirelust${{ matrix.EXTENSION }}
-
-    - name: Upload migration artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: migration-${{ matrix.TARGET }}
-        path: target/${{ matrix.TARGET }}/release/migration${{ matrix.EXTENSION }}
-
-  docker:
-    name: Build & Push Docker Image
+  release-rehearsal:
+    name: Full release validation (no publication)
+    needs: [release-binaries, release-image]
+    if: github.event_name == 'workflow_dispatch' && inputs.full_release
     runs-on: ubuntu-latest
-    needs: [check, test, build]
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: read
-      packages: write
-      actions: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          build-args: |
-            GIT_CREDENTIALS=${{ secrets.GIT_CREDENTIALS }}
-          tags: |
-            ghcr.io/${{ github.repository }}/lunirelust:latest
-            ghcr.io/${{ github.repository }}/lunirelust:${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  release:
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    # The GitHub Release is only created after the image for this tag exists;
-    # a failed image push fails the workflow without publishing a release.
-    needs: [docker]
-    permissions:
-      contents: write
-      actions: read
-      packages: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
-      - name: Generate changelog
-        uses: orhun/git-cliff-action@v4
-        id: git-cliff
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
         with:
-          config: cliff.toml
-          args: -vv --latest --strip header
-        env:
-          OUTPUT: CHANGELOG.md
-
-      - name: Download binary artifacts
-        uses: actions/download-artifact@v4
+          pattern: release-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-artifacts
+      - name: Verify all artifact identities and checksums
+        run: >-
+          python3 scripts/ci/release.py manifest
+          --artifacts "$RUNNER_TEMP/release-artifacts"
+          --output "$RUNNER_TEMP/release-manifest"
+      - uses: actions/upload-artifact@v4
         with:
-          path: artifacts
-          # Restrict to release binaries: the docker job also uploads a
-          # buildx build-record artifact (*.dockerbuild) that cannot be
-          # extracted here and would fail the whole step.
-          pattern: "{lunirelust-*,migration-*}"
-
-      - name: List downloaded files
-        run: ls -R artifacts
-
-      - name: Prepare release files
-        run: |
-          mkdir -p release-files
-
-          # Copy main application files with platform-specific names
-          for dir in artifacts/lunirelust-*/; do
-            platform=$(basename "$dir" | sed 's/lunirelust-//')
-            if [ -f "$dir/lunirelust.exe" ]; then
-              # Windows platform
-              cp "$dir/lunirelust.exe" "release-files/lunirelust-${platform}.exe"
-            elif [ -f "$dir/lunirelust" ]; then
-              # Unix platforms
-              cp "$dir/lunirelust" "release-files/lunirelust-${platform}"
-            fi
-          done
-
-          # Copy migration tools for all platforms
-          for dir in artifacts/migration-*/; do
-            platform=$(basename "$dir" | sed 's/migration-//')
-            if [ -f "$dir/migration.exe" ]; then
-              # Windows platform
-              cp "$dir/migration.exe" "release-files/migration-${platform}.exe"
-            elif [ -f "$dir/migration" ]; then
-              # Unix platforms
-              cp "$dir/migration" "release-files/migration-${platform}"
-            fi
-          done
-
-          ls -la release-files/
-          echo "Files to upload:"
-          find release-files -type f -exec echo "  - {}" \;
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body: ${{ steps.git-cliff.outputs.content }}
-          files: release-files/*
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: true
-          generate_release_notes: false
+          name: rehearsal-manifest-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release-manifest/release-manifest.json
+            ${{ runner.temp }}/release-manifest/SHA256SUMS
+          retention-days: 7

@@ -1,0 +1,119 @@
+name: Release binaries
+
+on:
+  workflow_call:
+    secrets:
+      GIT_CREDENTIALS:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  binary:
+    name: Binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -D warnings
+      TARGET: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cross: false
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cross: false
+          - os: ubuntu-latest
+            target: arm-unknown-linux-musleabihf
+            cross: true
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            cross: true
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            cross: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cross: false
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/github-script@v7
+        id: artifact
+        env:
+          ARTIFACT_NAME: release-binary-${{ matrix.target }}
+        with:
+          script: |
+            await require('./.github/scripts/find-artifact.cjs')({
+              github, context, core, name: process.env.ARTIFACT_NAME
+            });
+      - uses: actions/download-artifact@v4
+        if: steps.artifact.outputs.exists == 'true'
+        with:
+          name: release-binary-${{ matrix.target }}
+          path: ${{ runner.temp }}/release-binary
+      - uses: ./.github/actions/setup-cargo
+        if: steps.artifact.outputs.exists != 'true'
+        with:
+          target: ${{ matrix.target }}
+          cache-key: release-${{ matrix.target }}
+          credentials: ${{ secrets.GIT_CREDENTIALS }}
+      - uses: taiki-e/install-action@v2
+        if: steps.artifact.outputs.exists != 'true' && matrix.cross
+        with:
+          tool: cross
+      - name: Install musl tools
+        if: steps.artifact.outputs.exists != 'true' && matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Compile app and migration with production features
+        if: steps.artifact.outputs.exists != 'true'
+        env:
+          USE_CROSS: ${{ matrix.cross }}
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          compiler=cargo
+          if [[ "$USE_CROSS" == true ]]; then compiler=cross; fi
+          # cross mounts the prefetched Cargo home. Credentials are not passed to its container.
+          "$compiler" build --locked --offline --release --no-default-features --workspace --bins --target "$TARGET"
+      - name: Smoke native-runnable migration CLI
+        if: steps.artifact.outputs.exists != 'true'
+        run: |
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$TARGET" == "$host" || "$TARGET" == x86_64-unknown-linux-musl ]]; then
+            extension=''
+            if [[ "$TARGET" == *windows* ]]; then extension=.exe; fi
+            "target/$TARGET/release/migration$extension" --version
+          else
+            echo 'Cross-target artifact compiled; execution on target hardware is not claimed.'
+          fi
+      - name: Record binary checksums and source
+        if: steps.artifact.outputs.exists != 'true'
+        run: python scripts/ci/release.py binary --target "$TARGET" --directory "$RUNNER_TEMP/release-binary"
+      - name: Verify artifact identity
+        run: python scripts/ci/release.py verify-binary --target "$TARGET" --directory "$RUNNER_TEMP/release-binary"
+      - uses: actions/upload-artifact@v4
+        if: steps.artifact.outputs.exists != 'true'
+        with:
+          name: release-binary-${{ matrix.target }}
+          path: ${{ runner.temp }}/release-binary/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6

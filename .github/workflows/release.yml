@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate formal release identity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate tag, default-branch ancestry, and all package versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 scripts/ci/release.py validate --tag "$RELEASE_TAG" --default-ref "origin/$DEFAULT_BRANCH"
+
+  ci:
+    needs: validate
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  binaries:
+    needs: [validate, ci]
+    uses: ./.github/workflows/release-binaries.yml
+    secrets: inherit
+
+  image:
+    needs: [validate, ci]
+    uses: ./.github/workflows/image.yml
+    secrets: inherit
+
+  publish:
+    name: Publish checked artifacts
+    needs: [validate, ci, binaries, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Only this tag-only job can mutate GitHub releases or registry tags.
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+    concurrency:
+      group: release-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-artifacts
+      - name: Keep registry credentials in runner temporary storage
+        run: echo "DOCKER_CONFIG=$RUNNER_TEMP/release-docker" >> "$GITHUB_ENV"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resume or publish matching immutable artifacts, then promote latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: >-
+          python3 scripts/ci/publish.py
+          --artifacts "$RUNNER_TEMP/release-artifacts"
+          --output "$RUNNER_TEMP/release-files"
+          --default-ref "origin/$DEFAULT_BRANCH"
