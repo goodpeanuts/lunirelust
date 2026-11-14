@@ -4,8 +4,21 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$repo_root"
 
-dev_compose=(docker compose --project-name lunirelust-dev --env-file .env -f compose.dev.yml)
-test_compose=(docker compose --project-name lunirelust-test --env-file .env.test -f compose.test.yml)
+dev_compose=(docker compose --project-name lunirelust-dev --env-file /dev/null -f compose.middleware.yml -f compose.dev.yml)
+test_compose=(docker compose --project-name lunirelust-test --env-file /dev/null -f compose.middleware.yml -f compose.test.yml)
+
+case "${1:-}" in
+    test|test-search|test-up|test-down)
+        if [[ -z "${LUNIRELUST_TEST_LOCK_FD:-}" ]]; then
+            exec python3 "$repo_root/scripts/test-lock.py" "$0" "$@"
+        fi
+        python3 "$repo_root/scripts/test-lock.py" --check "$LUNIRELUST_TEST_LOCK_FD"
+        "$repo_root/scripts/check-config.sh" --loaded test
+        ;;
+    dev|dev-infra|dev-down|build|build-down|migrate)
+        "$repo_root/scripts/check-config.sh" --loaded dev
+        ;;
+esac
 
 case "${SEARCH_BACKEND:-postgres}" in
     postgres) ;;
@@ -14,44 +27,26 @@ case "${SEARCH_BACKEND:-postgres}" in
     *) echo "invalid SEARCH_BACKEND" >&2; exit 2 ;;
 esac
 
-start_dev_infrastructure() {
+prepare_dev_directories() {
     mkdir -p "$repo_root/.local/dev/postgres" "$repo_root/.local/dev/meilisearch"
+    mkdir -p -- "$ASSETS_HOME_PATH" "$ASSETS_DATA_PATH" "$ASSETS_PUBLIC_PATH" "$ASSETS_PRIVATE_PATH"
+}
+
+start_dev_infrastructure() {
+    prepare_dev_directories
     "${dev_compose[@]}" up -d --wait
 }
 
-canonicalize_path() {
-    # Portable canonicalization that tolerates a missing final component
-    # (GNU `realpath -m` behavior): resolve the deepest existing ancestor
-    # with cd -P/pwd -P, then append the lexical remainder.
-    local path="$1" suffix="" resolved
-    # Split declaration: bash 3.2 expands every word of one `local` command
-    # before assigning, so `ancestor="$path"` must be a separate statement.
-    local ancestor="$path"
-    while [ ! -e "$ancestor" ] && [ "$ancestor" != "/" ]; do
-        suffix="/$(basename "$ancestor")$suffix"
-        ancestor="$(dirname "$ancestor")"
-    done
-    if ! resolved="$(cd -P "$ancestor" 2>/dev/null && pwd -P)"; then
-        return 1
-    fi
-    printf '%s%s\n' "$resolved" "$suffix"
-}
-
 validated_test_root() {
-    local expected="$repo_root/.local/test"
-    local resolved
-    resolved="$(canonicalize_path "$expected")" || resolved=""
-    if [[ "$resolved" != "$expected" ]]; then
-        echo "refusing to clean test data outside $expected (resolved to $resolved)" >&2
-        return 1
-    fi
-    printf '%s\n' "$expected"
+    # Recheck paths immediately before cleanup, including dangling symlinks.
+    python3 "$repo_root/scripts/check-config.py" environment test "$repo_root" || return
+    printf '%s\n' "$repo_root/.local/test"
 }
 
 cleanup_test() {
     local test_root
-    test_root="$(validated_test_root)"
-    "${test_compose[@]}" --profile search down -v --remove-orphans
+    test_root="$(validated_test_root)" || return
+    "${test_compose[@]}" --profile search down -v --remove-orphans || return
     rm -rf -- "$test_root"
 }
 
@@ -70,20 +65,32 @@ start_test_infrastructure() {
     fi
 }
 
-run_test_suite() {
-    cleanup_on_exit() {
-        local status=$?
-        trap - EXIT INT TERM
-        cleanup_test || true
-        exit "$status"
-    }
-    trap cleanup_on_exit EXIT INT TERM
+cleanup_on_exit() {
+    local status=$? cleanup_status=0
+    trap - EXIT
+    trap '' INT TERM
+    if [[ "$status" != 0 || "${keep_test_infrastructure:-0}" != 1 ]]; then
+        cleanup_test || cleanup_status=$?
+        if [[ "$status" == 0 ]]; then status="$cleanup_status"; fi
+    fi
+    exit "$status"
+}
 
+prepare_test_cleanup() {
+    trap cleanup_on_exit EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+
+run_test_suite() {
+    local features=(--no-default-features)
+    [[ "${1:-}" != search ]] || features=(--all-features)
+    prepare_test_cleanup
     start_test_infrastructure "${1:-}"
 
     cargo run --quiet -p migration -- up
-    cargo nextest run --all-features
-    cargo test --quiet --workspace --doc
+    cargo nextest run "${features[@]}"
+    cargo test --quiet --workspace --doc "${features[@]}"
 }
 
 case "${1:-}" in
@@ -110,14 +117,17 @@ case "${1:-}" in
         run_test_suite search
         ;;
     build)
+        prepare_dev_directories
         "${dev_compose[@]}" -f docker-compose.build.yml up -d --build
         ;;
     build-down)
         "${dev_compose[@]}" -f docker-compose.build.yml --profile hybrid down --remove-orphans
         ;;
     test-up)
+        prepare_test_cleanup
         start_test_infrastructure
         cargo run --quiet -p migration -- up
+        keep_test_infrastructure=1
         ;;
     test-down)
         cleanup_test

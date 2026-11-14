@@ -1,34 +1,14 @@
 services:
   postgres:
-    image: postgres:15
-    mem_limit: 512m
-    cpus: 1.0
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "127.0.0.1:5434:5432"
     volumes:
       - type: bind
         source: ./.local/dev/postgres
         target: /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 2s
-      timeout: 5s
-      retries: 20
 
   meilisearch:
-    profiles: [search, hybrid]
-    mem_limit: 1g
-    cpus: 2.0
-    image: getmeili/meilisearch:v1.42
-    restart: unless-stopped
-    environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
-      MEILI_ENV: development
+    profiles: [hybrid]
     ports:
       - "127.0.0.1:7700:7700"
     volumes:

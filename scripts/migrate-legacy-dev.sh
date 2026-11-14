@@ -85,7 +85,7 @@ docker exec "$legacy_container" psql -U testuser -d testdb -Atqc \
 stop_legacy
 trap - EXIT INT TERM
 
-dev_compose=(./scripts/env-run.sh .env.example docker compose --project-name lunirelust-dev --env-file .env.example -f compose.dev.yml)
+dev_compose=(./scripts/env-run.sh .env.example docker compose --project-name lunirelust-dev --env-file /dev/null -f compose.middleware.yml -f compose.dev.yml)
 "${dev_compose[@]}" up -d --wait postgres
 "${dev_compose[@]}" exec -T postgres pg_restore \
     -U luna_dev -d luna_dev \
