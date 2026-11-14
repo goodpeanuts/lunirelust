@@ -114,9 +114,10 @@ pub(super) async fn search_sql_fallback(
     } else {
         "SELECT NULL::text AS id WHERE false"
     };
+    // Keep the result schema consistent for every selected entity combination.
     let cte = format!(
         "WITH candidate_ids AS MATERIALIZED ({candidates}),
-        hits AS MATERIALIZED ({})",
+        hits(id, entity_type, title, date, kind_order, numeric_id) AS MATERIALIZED ({})",
         branches.join(" UNION ALL ")
     );
     let count = db
