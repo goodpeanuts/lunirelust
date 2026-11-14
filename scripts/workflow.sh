@@ -15,7 +15,11 @@ case "${1:-}" in
         python3 "$repo_root/scripts/test-lock.py" --check "$LUNIRELUST_TEST_LOCK_FD"
         "$repo_root/scripts/check-config.sh" --loaded test
         ;;
-    dev|dev-infra|dev-down|build|build-down|migrate)
+    build|build-down)
+        echo "workflow.sh $1 is retired; use just image-build IMAGE (build-only) or just dev-down for native development middleware." >&2
+        exit 2
+        ;;
+    dev|dev-infra|dev-down|migrate)
         "$repo_root/scripts/check-config.sh" --loaded dev
         ;;
 esac
@@ -29,7 +33,7 @@ esac
 
 prepare_dev_directories() {
     mkdir -p "$repo_root/.local/dev/postgres" "$repo_root/.local/dev/meilisearch"
-    mkdir -p -- "$ASSETS_HOME_PATH" "$ASSETS_DATA_PATH" "$ASSETS_PUBLIC_PATH" "$ASSETS_PRIVATE_PATH"
+    mkdir -p -- "$ASSETS_PUBLIC_PATH" "$ASSETS_PRIVATE_PATH"
 }
 
 start_dev_infrastructure() {
@@ -116,13 +120,6 @@ case "${1:-}" in
         test_compose+=(--profile search)
         run_test_suite search
         ;;
-    build)
-        prepare_dev_directories
-        "${dev_compose[@]}" -f docker-compose.build.yml up -d --build
-        ;;
-    build-down)
-        "${dev_compose[@]}" -f docker-compose.build.yml --profile hybrid down --remove-orphans
-        ;;
     test-up)
         prepare_test_cleanup
         start_test_infrastructure
@@ -141,7 +138,7 @@ case "${1:-}" in
         exec cargo run -p migration -- "$@"
         ;;
     *)
-        echo "usage: $0 {dev|dev-infra|dev-down|test|test-search|test-up|test-down|build|build-down|migrate}" >&2
+        echo "usage: $0 {dev|dev-infra|dev-down|test|test-search|test-up|test-down|migrate}" >&2
         exit 2
         ;;
 esac

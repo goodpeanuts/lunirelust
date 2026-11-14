@@ -58,12 +58,10 @@ def environment(mode, root):
     require(data_root.resolve() == data_root,
             "unsafe " + mode + " data root (symlink or path escape)")
     paths = {
-        "ASSETS_HOME_PATH": "assets",
         "ASSETS_PUBLIC_PATH": "assets/public",
         "ASSETS_PRIVATE_PATH": "assets/private",
     }
     if mode == "dev":
-        paths["ASSETS_DATA_PATH"] = "assets"
         for directory in ("postgres", "meilisearch"):
             require((data_root / directory).resolve() == data_root / directory,
                     "unsafe development middleware storage")
@@ -79,11 +77,12 @@ def environment(mode, root):
             # Preserve existing native asset layouts inside this checkout.
             require(value and root in resolved.parents,
                     "unsafe " + key + " (must stay inside the checkout)")
-            protected = (".git", ".agents", ".codex", ".aws", "subm", ".local/test",
+            protected = (".git", ".agents", ".codex", ".aws", "subm",
+                         "src", "migration", ".cargo", ".github", ".local/test",
                          ".local/dev/postgres", ".local/dev/meilisearch")
             require(all(resolved != root / path and root / path not in resolved.parents
                         and resolved not in (root / path).parents for path in protected),
-                    "unsafe " + key + " (must not overlap metadata or middleware/test data)")
+                    "unsafe " + key + " (must not overlap build inputs, metadata, or middleware/test data)")
 
 
 def compose(mode, root, profile):

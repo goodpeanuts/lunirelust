@@ -32,10 +32,9 @@ natively with Swagger enabled. It preserves existing configuration. The example
 binds the API to `127.0.0.1:8012`; Swagger UI is at `/docs`.
 
 `just dev-infra` starts only selected middleware. `just dev-down` stops all optional
-middleware too and preserves `.local/dev`. `just build` builds and starts the optional
-containerized application with the same selected middleware; `just build-down` stops
-it while preserving data. Both startup paths prepare local bind-mount directories
-as the current user before Docker starts. Use the native loop for routine development.
+middleware too and preserves `.local/dev`. Startup prepares configured asset and
+middleware directories as the current user before Docker starts. Use the native loop
+for routine development; image creation is a separate optional command described below.
 
 [compose.middleware.yml](compose.middleware.yml) defines shared middleware images,
 resource limits, environment, and health checks. Workflows explicitly combine it
@@ -101,12 +100,18 @@ settings for overriding them. Existing `.env` files are not rewritten.
 New development configuration stores assets under `.local/dev/assets`. Existing
 native layouts such as `assets/public` and `assets/private` remain supported.
 Configured asset directories must resolve inside the checkout and must not overlap
-repository metadata, the private submodule, or middleware/test data. Startup prepares
+repository metadata, the private submodule, middleware/test data, or application
+build inputs (`src`, `migration`, `.cargo`, and `.github`). Startup prepares
 those configured directories without moving existing files. Both development and
 test asset paths reject parent (`..`) components before directory creation, even
 when the final resolved path is allowed. Ordinary relative and absolute paths are supported.
 Symlinks that escape the checkout are rejected. Test asset directories remain fixed
 under `.local/test`.
+
+`ASSETS_PUBLIC_PATH` and `ASSETS_PRIVATE_PATH` are the active asset directories.
+The obsolete container-only `DEPLOY_ENV_FILE`, `ASSETS_HOME_PATH`, and
+`ASSETS_DATA_PATH` settings are no longer required or acted on. Existing `.env`
+files may retain these ignored settings; no image command reads or rewrites `.env`.
 
 Before starting or removing middleware, the workflow validates database identity,
 asset paths, and the rendered Compose model without printing credentials. Test
@@ -156,9 +161,12 @@ before testing and retain the single-process nextest limit.
 `just config-check` checks the existing `.env` (or `.env.example` when absent) and
 `.env.test`, renders all supported local profiles, and leaves files and containers
 unchanged. `just workflow-test` renders real Compose configurations using synthetic
-env files and substitutes Docker mutations and Cargo only for lifecycle tests. It
+env files and substitutes Docker mutations and Cargo for lifecycle and image tests. It
 checks cross-worktree contention, unsafe paths, inherited settings, and cleanup
-after failures and signals. It uses the same shared test lock, so run it separately
+after failures and signals, plus image command isolation and archive preservation.
+The image-command regressions make Python 3.11 or newer a requirement for
+`just workflow-test`; the native dev/test configuration guards require Python 3.
+The lifecycle suite uses the same shared test lock, so run it separately
 from other test workflows.
 
 The root [.pre-commit-config.yaml](.pre-commit-config.yaml) runs repository hygiene
@@ -194,6 +202,84 @@ is not required for this single-maintainer project. Merge remotely after the fin
 checks pass, then observe default-branch CI before synchronizing local checkouts.
 For paired changes, merge and verify the private PR first, update the public gitlink
 to that merged commit, and repeat the checks for the public PR.
+
+## Optional application images
+
+Daily `dev`, `check`, `test`, and `ci` commands do not build application images.
+`just image-build IMAGE` builds and loads one local image; `just image-export IMAGE
+OUTPUT` saves an image that is already present locally. These commands do not select
+a database, start middleware, run migrations, deploy, or prune anything. The legacy
+`just build` command is a build-only alias with default tag `lunirelust:local`.
+`build-down` is retired because image creation starts no services.
+
+Image commands require Python 3.11 or newer and Docker with Buildx/BuildKit. The
+single [Dockerfile](Dockerfile) builds all application and migration binary targets
+with Rust 1.92, `--locked --release --no-default-features`, and two compiler jobs by
+default. Only the application and migration binaries enter the runtime. Matching
+Debian Bookworm bases supply Node.js 22, npm, Playwright, Chromium, and its system
+libraries. The Dockerfile holds the single Playwright version pin and checks it
+against the resolved private `luneth` bridge lockfile before compilation.
+
+For online dependency fetching, export `GIT_CREDENTIALS` from your credential
+manager into the current process environment, then run:
+
+```bash
+just image-build lunirelust:local
+just image-export lunirelust:local './artifacts/lunirelust local.tar'
+```
+
+Create the archive's parent directory first, outside runtime and private storage.
+Export refuses dotenv destinations, existing files, and symlinks, publishes an
+archive only after `docker image save` succeeds, and preserves
+an existing archive even if another writer creates it during the save.
+
+The credential is passed through a [BuildKit secret](https://docs.docker.com/build/building/secrets/)
+to the same process-only Git helper used by CI. It never becomes a build argument,
+Git credential file, or image layer. Image commands accept no cache export or push
+options and disable provenance/SBOM output. Private Cargo sources remain in local
+builder storage; never publish intermediate images, `mode=max` caches, or build
+records. The final runtime includes binaries and runtime dependencies only.
+
+The build command stages only manifests, lockfiles, Rust source files, the shared
+fetch helper, and `.cargo/config.toml`. A deny-by-default `.dockerignore` also
+restricts direct Dockerfile builds. Private `subm`, dotenv files, Cargo credentials,
+runtime assets, and arbitrary custom development data directories are excluded.
+New compile-time non-Rust inputs must be deliberately added to both allowlists.
+Source symlinks are rejected. Labels record the source revision and version; only
+a clean checkout at its matching `v<Cargo.toml version>` tag receives a release
+version. Other checkouts use `local-<revision>`, with `-dirty` for local changes.
+
+Previously downloaded inputs remain optional:
+
+```bash
+just vendor
+just image-build lunirelust:cached --vendor ./vendor \
+  --browser-cache ./.playwright-cache
+```
+
+`just vendor` writes `vendor/` and source replacements to `.cargo/config.vendor.toml`
+using the lockfile. Existing versions of those inputs remain supported. For another
+location, pass `--vendor PATH --vendor-config FILE`; the config must contain only
+the source tables emitted by `cargo vendor`, rather than the old combined
+`config.docker.toml`. The command normalizes the vendor location in a temporary
+config without modifying the original. A non-secret digest of that normalized
+config invalidates the build cache when source mappings change. A vendor build does
+not require a Git credential. Browser and vendor paths are separate explicit named contexts, never
+the whole checkout. Empty, malformed, or symlink-containing caches are rejected.
+
+The browser input must be a dedicated Linux cache for the target architecture,
+containing Chromium, the Chromium headless shell, and ffmpeg. The runtime build
+checks revisions against the pinned Playwright package and excludes the cache's
+host `.links` metadata. Vendor and browser inputs are independent: omit either to
+fetch that input normally. These modes are not fully offline: base images, APT,
+and npm still need network access. The bridge retains its own runtime npm bootstrap.
+
+Optional `--apt-mirror https://mirror.example` and
+`--npm-registry https://registry.example` flags select public mirrors. The APT origin
+must serve both `/debian` and `/debian-security`; defaults remain the upstream image
+and npm defaults. URLs containing credentials, query strings, or fragments are
+rejected. For direct Dockerfile builds, the corresponding build arguments are
+`APT_MIRROR` and `NPM_REGISTRY`.
 
 ## Contributions and the private submodule
 

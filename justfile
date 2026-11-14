@@ -46,6 +46,7 @@ config-check:
 workflow-test:
     ./tests/workflow/test_config.sh
     ./tests/workflow/test_lifecycle.sh
+    ./tests/workflow/test_image_commands.sh
 
 ci: check test
 
@@ -58,16 +59,29 @@ migrate-status: ensure-dev-env
 migrate-down: ensure-dev-env
     ./scripts/env-run.sh .env ./scripts/workflow.sh migrate down
 
-# Local full-stack image build.
+# Optional cached Cargo inputs; no application services are started.
 vendor:
-    cargo vendor vendor/ > .cargo/config.vendor.toml
-    cat .cargo/config.toml .cargo/config.vendor.toml > .cargo/config.docker.toml
+    cargo vendor --locked vendor/ > .cargo/config.vendor.toml
 
-build: ensure-dev-env vendor
-    ./scripts/env-run.sh .env ./scripts/workflow.sh build
+# Optional local application image; build and load only.
+[positional-arguments]
+image-build image *options:
+    ./scripts/image.sh build "$@"
 
-build-down: ensure-dev-env
-    ./scripts/env-run.sh .env ./scripts/workflow.sh build-down
+# Export an existing image without replacing an archive.
+[positional-arguments]
+image-export image output:
+    ./scripts/image.sh export -- "$@"
+
+# Legacy build-only alias; accepts the same options as image-build.
+[positional-arguments]
+build image="lunirelust:local" *options:
+    @echo "just build is a build-only alias for just image-build."
+    ./scripts/image.sh build "$@"
+
+build-down:
+    @echo "build-down is retired: image builds start no services. Use just dev-down for native development middleware." >&2
+    @exit 2
 
 audit:
     cargo deny check -d
