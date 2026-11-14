@@ -37,8 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pool = setup_database(&config).await?;
     let state = build_app_state(&pool, config.clone());
 
-    // Start search indexer exactly once (not in test helpers).
-    state.search_service.trigger_startup_sync();
+    // Persist search mode before any catalog writes or start the optional indexer.
+    state.search_service.trigger_startup_sync().await?;
 
     // Reconcile stale crawl tasks from previous run.
     state.crawl_service.reconcile_startup().await;

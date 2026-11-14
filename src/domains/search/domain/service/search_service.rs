@@ -29,6 +29,6 @@ pub trait SearchServiceTrait: Send + Sync {
     /// Falls back to 0 (no access to restricted records) on lookup failure.
     async fn get_user_permission(&self, user_id: &str) -> i32;
 
-    /// Trigger startup full sync (runs in background).
-    fn trigger_startup_sync(&self);
+    /// Persist `PostgreSQL` mode before writes, or start enhanced repair in the background.
+    async fn trigger_startup_sync(&self) -> Result<(), AppError>;
 }

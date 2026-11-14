@@ -16,7 +16,7 @@ const DEFAULT_BATCH_SIZE: usize = 32;
 #[derive(Clone)]
 pub struct EmbeddingService {
     /// Underlying vLLM HTTP client.
-    client: EmbeddingClient,
+    client: Option<EmbeddingClient>,
     /// Current availability flag, updated by health checks and embed failures.
     available: Arc<AtomicBool>,
     /// Maximum number of texts per batch embedding request.
@@ -28,9 +28,18 @@ impl EmbeddingService {
     /// call `check_health()` or `set_available(true)` to enable it.
     pub fn new(client: EmbeddingClient, batch_size: Option<usize>) -> Self {
         Self {
-            client,
+            client: Some(client),
             available: Arc::new(AtomicBool::new(false)),
             batch_size: batch_size.unwrap_or(DEFAULT_BATCH_SIZE),
+        }
+    }
+
+    /// Create an inert wrapper without allocating an HTTP client.
+    pub fn disabled() -> Self {
+        Self {
+            client: None,
+            available: Arc::new(AtomicBool::new(false)),
+            batch_size: DEFAULT_BATCH_SIZE,
         }
     }
 
@@ -39,7 +48,8 @@ impl EmbeddingService {
         if !self.available.load(Ordering::Relaxed) {
             return None;
         }
-        match self.client.embed(text).await {
+        let client = self.client.as_ref()?;
+        match client.embed(text).await {
             Ok(embedding) => Some(embedding),
             Err(e) => {
                 tracing::warn!("Embedding generation failed: {}", e);
@@ -55,10 +65,14 @@ impl EmbeddingService {
             return texts.iter().map(|_| None).collect();
         }
 
+        let Some(client) = self.client.as_ref() else {
+            return texts.iter().map(|_| None).collect();
+        };
+
         // Process in chunks of batch_size
         let mut results: Vec<Option<Vec<f32>>> = Vec::with_capacity(texts.len());
         for chunk in texts.chunks(self.batch_size) {
-            match self.client.embed_batch(chunk).await {
+            match client.embed_batch(chunk).await {
                 Ok(embeddings) => {
                     for embedding in embeddings {
                         results.push(Some(embedding));
@@ -79,7 +93,10 @@ impl EmbeddingService {
 
     /// Check health and update availability status.
     pub async fn check_health(&self) -> bool {
-        let healthy = self.client.health_check().await;
+        let Some(client) = self.client.as_ref() else {
+            return false;
+        };
+        let healthy = client.health_check().await;
         let was_available = self.available.load(Ordering::Relaxed);
 
         self.available.store(healthy, Ordering::Relaxed);
@@ -102,7 +119,8 @@ impl EmbeddingService {
     // allow: test 构建下 dead_code 不触发，expect 会报 unfulfilled
     #[allow(dead_code)]
     pub fn set_available(&self, available: bool) {
-        self.available.store(available, Ordering::Relaxed);
+        self.available
+            .store(available && self.client.is_some(), Ordering::Relaxed);
     }
 }
 

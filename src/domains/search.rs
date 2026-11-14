@@ -55,6 +55,7 @@ mod infra {
         pub(super) mod document_builder;
         pub(super) mod event_processor;
         pub(super) mod full_sync;
+        pub(crate) mod index_state;
         pub mod indexer_service;
         pub(super) mod reconciliation;
     }

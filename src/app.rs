@@ -1,16 +1,14 @@
 use axum::{
-    body::{Body, Bytes},
     error_handling::HandleErrorLayer,
-    extract::{DefaultBodyLimit, Request},
+    extract::DefaultBodyLimit,
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE},
         HeaderValue, Method, StatusCode,
     },
-    middleware::{self, Next},
-    response::{IntoResponse, Response},
+    middleware,
+    response::IntoResponse,
     Router,
 };
-use http_body_util::BodyExt as _;
 
 use std::time::Duration;
 use tower::ServiceBuilder;
@@ -40,19 +38,6 @@ use crate::domains::{
 
 #[cfg(feature = "swagger")]
 use utoipa_swagger_ui::SwaggerUi;
-
-use once_cell::sync::Lazy;
-use regex::Regex;
-
-/// List of regex patterns representing disallowed content to block in requests.
-///
-/// These patterns are applied to both request bodies and URL query strings.
-/// Used to detect and reject potentially dangerous input (e.g., script tags).
-/// This is just sample. In real app this can be loaded from repository
-pub static FORBIDDEN_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    vec![Regex::new(r"(?i)<\s*script\b[^>]*>")
-        .expect("Failed to compile regex pattern for script tags")]
-});
 
 #[cfg(feature = "swagger")]
 fn create_swagger_ui() -> SwaggerUi {
@@ -95,10 +80,7 @@ pub fn create_router(state: AppState) -> Router {
         .timeout(Duration::from_secs(60))
         .layer(cors);
 
-    // /auth routes (login, register, refresh, etc.) — no logging here
-    let auth_router = Router::new()
-        .nest("/auth", user_auth_routes())
-        .layer(middleware::from_fn(make_request_response_inspecter(false)));
+    let auth_router = Router::new().nest("/auth", user_auth_routes());
 
     // Protected API routes
     let protected_routes = Router::new()
@@ -111,9 +93,7 @@ pub fn create_router(state: AppState) -> Router {
         // See https://docs.rs/axum/latest/axum/extract/struct.Multipart.html
         .layer(DefaultBodyLimit::max(state.config.asset_max_size))
         // enforce JWT authentication
-        .route_layer(middleware::from_fn(jwt::jwt_auth))
-        // attach inspecter
-        .layer(middleware::from_fn(make_request_response_inspecter(true)));
+        .route_layer(middleware::from_fn(jwt::jwt_auth));
 
     // setup assets routes
     let public_assets_routes = Router::new().nest_service(
@@ -153,7 +133,7 @@ pub fn create_router(state: AppState) -> Router {
                     tracing::info_span!(
                         "request",
                         method = %req.method(),
-                        uri = %req.uri(),
+                        path = %req.uri().path(),
                     )
                 })
                 .on_response(
@@ -181,119 +161,4 @@ async fn health_check() -> &'static str {
 /// This function returns a 404 Not Found response with a message.
 pub async fn fallback() -> Result<impl IntoResponse, AppError> {
     Ok((StatusCode::NOT_FOUND, "Not Found"))
-}
-
-// Type alias for the boxed future returned by the request/response inspector middleware
-type InspectorFuture = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Response, (StatusCode, String)>> + Send>,
->;
-
-/// Middleware that inspects request bodies and URL query strings, as well as response bodies, logging them for debugging, and rejects forbidden content.
-/// Intercepts HTTP requests and responses: buffers bodies and query strings, then logs their content.
-/// Returns a 403 Forbidden error if any forbidden patterns are detected in the request body or query string.
-/// Note: multipart/form-data requests bypass this middleware and must be validated within their handlers.
-fn make_request_response_inspecter(
-    log_enabled: bool,
-) -> impl Fn(Request<Body>, Next) -> InspectorFuture + Clone + Send + Sync + 'static {
-    move |req, next| {
-        let fut = request_response_inspecter(req, next, log_enabled);
-        Box::pin(fut)
-    }
-}
-
-async fn request_response_inspecter(
-    req: Request<Body>,
-    next: Next,
-    log_enabled: bool,
-) -> Result<Response, (StatusCode, String)> {
-    // inspect forbidden query string
-    if let Some(query) = req.uri().query() {
-        if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(query)) {
-            return Err((StatusCode::FORBIDDEN, "Forbidden Request".to_owned()));
-        }
-    }
-
-    let (parts, body) = req.into_parts();
-
-    // Check if the request is multipart/form-data — skip body buffering to avoid OOM on large file uploads
-    let is_multipart = parts
-        .headers
-        .get(CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|s| s.starts_with("multipart/form-data"));
-
-    if is_multipart {
-        // Pass through without buffering — multipart bodies are validated in their handlers
-        let req = Request::from_parts(parts, body);
-        return Ok(next.run(req).await);
-    }
-
-    let bytes = request_inspect_print("request", log_enabled, body).await?;
-    let req = Request::from_parts(parts, Body::from(bytes));
-
-    let mut res = next.run(req).await;
-    // Only buffer response body for logging when enabled AND non-multipart
-    if log_enabled && tracing::enabled!(tracing::Level::DEBUG) {
-        let (parts, body) = res.into_parts();
-        let bytes = response_print("response", body).await?;
-        res = Response::from_parts(parts, Body::from(bytes));
-    }
-
-    Ok(res)
-}
-
-/// This function inspects forbidden request and collects the body data into bytes and prints it to the log.
-async fn request_inspect_print<B>(
-    direction: &str,
-    log_enabled: bool,
-    body: B,
-) -> Result<Bytes, (StatusCode, String)>
-where
-    B: axum::body::HttpBody<Data = Bytes>,
-    B::Error: std::fmt::Display,
-{
-    let bytes = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(err) => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("failed to read {direction} body: {err}"),
-            ));
-        }
-    };
-
-    if let Ok(body_str) = std::str::from_utf8(&bytes) {
-        if log_enabled {
-            tracing::info!("{} body = {:?}", direction, body_str);
-        }
-
-        // inspect forbidden request body
-        if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(body_str)) {
-            return Err((StatusCode::FORBIDDEN, "Forbidden Request".to_owned()));
-        }
-    }
-
-    Ok(bytes)
-}
-
-async fn response_print<B>(direction: &str, body: B) -> Result<Bytes, (StatusCode, String)>
-where
-    B: axum::body::HttpBody<Data = Bytes>,
-    B::Error: std::fmt::Display,
-{
-    let bytes = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(err) => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("failed to read {direction} body: {err}"),
-            ));
-        }
-    };
-
-    if let Ok(body_str) = std::str::from_utf8(&bytes) {
-        tracing::debug!("{} body = {:?}", direction, body_str);
-    }
-
-    Ok(bytes)
 }

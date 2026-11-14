@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:15
+    mem_limit: 512m
+    cpus: 1.0
     restart: "no"
     environment:
       POSTGRES_USER: luna_test
@@ -17,6 +19,9 @@ services:
       retries: 30
 
   meilisearch:
+    profiles: [search, hybrid]
+    mem_limit: 1g
+    cpus: 2.0
     image: getmeili/meilisearch:v1.42
     restart: "no"
     environment:

@@ -1,5 +1,6 @@
 //! Helper functions for inserting search outbox events within Luna CUD transactions.
 
+use crate::common::config::SearchBackend;
 use crate::domains::search::{
     OutboxRepo, OutboxRepository as _, SearchEntityType, TombstoneRepo, TombstoneRepository as _,
 };
@@ -66,9 +67,13 @@ async fn find_record_ids_by_idol<C: ConnectionTrait>(
 /// Dispatches to the correct query based on `entity_type`.
 pub async fn find_affected_record_ids<C: ConnectionTrait>(
     db: &C,
+    search_backend: SearchBackend,
     entity_type: SearchEntityType,
     entity_id: i64,
 ) -> Result<Vec<String>, sea_orm::DbErr> {
+    if !search_backend.indexing_enabled() {
+        return Ok(Vec::new());
+    }
     match entity_type {
         SearchEntityType::Director => {
             find_record_ids_by_fk(db, record::Column::DirectorId, entity_id).await
@@ -93,11 +98,15 @@ pub async fn find_affected_record_ids<C: ConnectionTrait>(
 /// the document without querying the database.
 pub async fn outbox_entity_upsert<C: ConnectionTrait + Send>(
     db: &C,
+    search_backend: SearchBackend,
     entity_type: SearchEntityType,
     entity_id: i64,
     entity_name: &str,
     affected_record_ids: Vec<String>,
 ) -> Result<(), sea_orm::DbErr> {
+    if !search_backend.indexing_enabled() {
+        return Ok(());
+    }
     let version = Utc::now()
         .timestamp_nanos_opt()
         .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
@@ -126,10 +135,14 @@ pub async fn outbox_entity_upsert<C: ConnectionTrait + Send>(
 /// Insert outbox delete event + mark tombstone for a named entity.
 pub async fn outbox_entity_delete<C: ConnectionTrait + Send>(
     db: &C,
+    search_backend: SearchBackend,
     entity_type: SearchEntityType,
     entity_id: i64,
     affected_record_ids: Vec<String>,
 ) -> Result<(), sea_orm::DbErr> {
+    if !search_backend.indexing_enabled() {
+        return Ok(());
+    }
     let version = Utc::now()
         .timestamp_nanos_opt()
         .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
@@ -161,8 +174,12 @@ pub async fn outbox_entity_delete<C: ConnectionTrait + Send>(
 /// edit with a higher version will always win.
 pub async fn outbox_fanout_records<C: ConnectionTrait + Send>(
     db: &C,
+    search_backend: SearchBackend,
     record_ids: &[String],
 ) -> Result<(), sea_orm::DbErr> {
+    if !search_backend.indexing_enabled() {
+        return Ok(());
+    }
     for record_id in record_ids {
         OutboxRepo::insert_event(
             db,
@@ -176,4 +193,37 @@ pub async fn outbox_fanout_records<C: ConnectionTrait + Send>(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::DatabaseConnection;
+
+    #[tokio::test]
+    async fn postgres_helpers_do_not_query_a_connection() {
+        let db = DatabaseConnection::Disconnected;
+        for &entity_type in SearchEntityType::ALL {
+            let affected = find_affected_record_ids(&db, SearchBackend::Postgres, entity_type, 42)
+                .await
+                .expect("disabled fanout must not query the database");
+            assert!(affected.is_empty());
+            outbox_entity_upsert(
+                &db,
+                SearchBackend::Postgres,
+                entity_type,
+                42,
+                "fixture",
+                vec![],
+            )
+            .await
+            .expect("disabled upsert must not query the database");
+            outbox_entity_delete(&db, SearchBackend::Postgres, entity_type, 42, vec![])
+                .await
+                .expect("disabled delete must not query the database");
+        }
+        outbox_fanout_records(&db, SearchBackend::Postgres, &["record-fixture".to_owned()])
+            .await
+            .expect("disabled fanout must not query the database");
+    }
 }

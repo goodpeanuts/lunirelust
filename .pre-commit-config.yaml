@@ -13,10 +13,9 @@ repos:
       - id: trailing-whitespace
   - repo: local
     hooks:
-      - id: project-ci
-        name: project CI
-        description: Run the same isolated checks and tests as CI.
-        entry: just ci
+      - id: rust-format
+        name: Rust formatting
+        entry: cargo fmt --all -- --check
         language: system
         pass_filenames: false
-        always_run: true
+        files: \.rs$

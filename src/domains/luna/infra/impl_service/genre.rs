@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
@@ -18,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct GenreService {
     db: DatabaseConnection,
+    search_backend: SearchBackend,
     repo: Arc<dyn GenreRepository + Send + Sync>,
     /// Separate handle for affinity-ordered listing. A `dyn GenreRepository`
     /// object cannot expose `GenreAffinityRepository` methods, so the affinity
@@ -27,9 +29,13 @@ pub struct GenreService {
 
 #[async_trait]
 impl GenreServiceTrait for GenreService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn GenreServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn GenreServiceTrait> {
         Arc::new(Self {
             db,
+            search_backend,
             repo: Arc::new(GenreRepo {}),
             affinity_repo: Arc::new(GenreRepo {}),
         })
@@ -104,6 +110,7 @@ impl GenreServiceTrait for GenreService {
         if was_created {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Genre,
                 genre_id,
                 &entity_name,
@@ -124,10 +131,14 @@ impl GenreServiceTrait for GenreService {
     ) -> Result<GenreDto, AppError> {
         let txn = self.db.begin().await?;
 
-        let pre_affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Genre, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let pre_affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Genre,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let genre = match self.repo.update(&txn, id, update_dto).await {
             Ok(Some(g)) => g,
@@ -143,12 +154,19 @@ impl GenreServiceTrait for GenreService {
 
         let surviving_id = genre.id;
         if surviving_id != id {
-            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Genre, id, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_entity_delete(
+                &txn,
+                self.search_backend,
+                SearchEntityType::Genre,
+                id,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             let mut all_affected = pre_affected.clone();
             let surviving_affected = search_outbox::find_affected_record_ids(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Genre,
                 surviving_id,
             )
@@ -159,6 +177,7 @@ impl GenreServiceTrait for GenreService {
             all_affected.dedup();
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Genre,
                 surviving_id,
                 &genre.name,
@@ -166,12 +185,13 @@ impl GenreServiceTrait for GenreService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &all_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &all_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         } else {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Genre,
                 id,
                 &genre.name,
@@ -179,7 +199,7 @@ impl GenreServiceTrait for GenreService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &pre_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         }
@@ -191,9 +211,14 @@ impl GenreServiceTrait for GenreService {
     async fn delete_genre(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await?;
 
-        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Genre, id)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Genre,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         match self.repo.delete(&txn, id).await {
             Ok(true) => {}
@@ -207,10 +232,16 @@ impl GenreServiceTrait for GenreService {
             }
         }
 
-        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Genre, id, affected.clone())
-            .await
-            .map_err(AppError::DatabaseError)?;
-        search_outbox::outbox_fanout_records(&txn, &affected)
+        search_outbox::outbox_entity_delete(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Genre,
+            id,
+            affected.clone(),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, self.search_backend, &affected)
             .await
             .map_err(AppError::DatabaseError)?;
 

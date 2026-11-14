@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::{
     common::error::AppError,
     domains::luna::dto::{
@@ -14,7 +15,10 @@ use std::sync::Arc;
 /// Service trait for series-related business logic operations.
 pub trait SeriesServiceTrait: Send + Sync {
     /// Constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn SeriesServiceTrait>
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn SeriesServiceTrait>
     where
         Self: Sized;
 

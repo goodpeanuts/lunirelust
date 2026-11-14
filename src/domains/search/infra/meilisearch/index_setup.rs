@@ -1,6 +1,8 @@
 //! `MeiliSearch` index setup: creates the index and configures searchable /
 //! filterable attributes and embedder settings.
 
+use std::sync::atomic::Ordering;
+
 use serde_json::{json, Value as JsonValue};
 
 use super::meilisearch_repo::MeiliSearchRepo;
@@ -145,6 +147,8 @@ fn handle_embedder_task_failure(error: &str) -> EmbedderSetupMode {
 pub(super) async fn init_index(
     repo: &MeiliSearchRepo,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    repo.hybrid_ready.store(false, Ordering::Relaxed);
+
     // Tolerate an existing index — create if missing, ignore if present.
     let index_exists = repo
         .client
@@ -184,12 +188,21 @@ pub(super) async fn init_index(
             .await?;
     }
 
+    if !repo.embeddings_enabled {
+        tracing::info!(
+            "MeiliSearch keyword index '{}' initialized",
+            repo.client.index_name
+        );
+        return Ok(());
+    }
+
     if update_plan.update_embedder {
         embedder_setup_mode = setup_embedder_with_normalization(repo, embedder_setup_mode).await?;
     }
 
     match embedder_setup_mode {
         EmbedderSetupMode::HybridReady => {
+            repo.hybrid_ready.store(true, Ordering::Relaxed);
             tracing::info!("MeiliSearch index '{}' initialized", repo.client.index_name);
         }
         EmbedderSetupMode::KeywordOnly => {

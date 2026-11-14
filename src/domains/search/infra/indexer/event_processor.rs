@@ -1,6 +1,6 @@
 //! Batched outbox event processing for search index updates.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr as _;
 use std::sync::Arc;
 
@@ -143,7 +143,16 @@ async fn process_upsert_events(
     }
 
     let record_docs = build_record_documents(db, &record_inputs).await?;
-    if record_docs.len() != record_inputs.len() {
+    // A fanout hint may outlive the record it referred to. Only a real
+    // versioned write requires a document; missing hints are acknowledged.
+    let found_ids: HashSet<&str> = record_docs
+        .iter()
+        .map(|doc| doc.entity_id.as_str())
+        .collect();
+    if record_inputs
+        .iter()
+        .any(|(id, version)| *version > 0 && !found_ids.contains(id.as_str()))
+    {
         return Err(format!(
             "Could not construct all record documents: requested={}, found={}",
             record_inputs.len(),

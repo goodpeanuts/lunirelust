@@ -7,7 +7,7 @@ publish = false
 [workspace]
 members = [".", "migration"]
 exclude = [
-    "subm/lustools/lust",
+    "subm/lust",
 ]
 
 
@@ -83,11 +83,14 @@ opentelemetry = [
 
 
 [profile.release]
-opt-level = 2 # fast and small wasm
-
-# Optimize all dependencies even in debug builds:
-[profile.dev.package."*"]
 opt-level = 2
+
+# Keep local compilation bounded on 16 GiB hosts. Release optimization is unchanged.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
 
 
 # override the default `edition` for all dependencies:

@@ -122,6 +122,7 @@ impl IdolServiceTrait for IdolService {
         if was_created {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.config.search_backend,
                 SearchEntityType::Idol,
                 id,
                 &entity_name,
@@ -139,10 +140,14 @@ impl IdolServiceTrait for IdolService {
     async fn update_idol(&self, id: i64, update_dto: UpdateIdolDto) -> Result<IdolDto, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let pre_affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Idol, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let pre_affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.config.search_backend,
+            SearchEntityType::Idol,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let updated_idol = self
             .repo
@@ -157,19 +162,30 @@ impl IdolServiceTrait for IdolService {
 
         let surviving_id = idol.id;
         if surviving_id != id {
-            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Idol, id, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_entity_delete(
+                &txn,
+                self.config.search_backend,
+                SearchEntityType::Idol,
+                id,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             let mut all_affected = pre_affected.clone();
-            let surviving_affected =
-                search_outbox::find_affected_record_ids(&txn, SearchEntityType::Idol, surviving_id)
-                    .await
-                    .map_err(AppError::DatabaseError)?;
+            let surviving_affected = search_outbox::find_affected_record_ids(
+                &txn,
+                self.config.search_backend,
+                SearchEntityType::Idol,
+                surviving_id,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             all_affected.extend(surviving_affected);
             all_affected.sort_unstable();
             all_affected.dedup();
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.config.search_backend,
                 SearchEntityType::Idol,
                 surviving_id,
                 &idol.name,
@@ -177,12 +193,13 @@ impl IdolServiceTrait for IdolService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &all_affected)
+            search_outbox::outbox_fanout_records(&txn, self.config.search_backend, &all_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         } else {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.config.search_backend,
                 SearchEntityType::Idol,
                 id,
                 &idol.name,
@@ -190,7 +207,7 @@ impl IdolServiceTrait for IdolService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+            search_outbox::outbox_fanout_records(&txn, self.config.search_backend, &pre_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         }
@@ -203,9 +220,14 @@ impl IdolServiceTrait for IdolService {
     async fn delete_idol(&self, id: i64) -> Result<String, AppError> {
         let txn = self.db.begin().await.map_err(AppError::DatabaseError)?;
 
-        let affected = search_outbox::find_affected_record_ids(&txn, SearchEntityType::Idol, id)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        let affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.config.search_backend,
+            SearchEntityType::Idol,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let deleted = self
             .repo
@@ -218,10 +240,16 @@ impl IdolServiceTrait for IdolService {
             return Err(AppError::NotFound("Idol not found".into()));
         }
 
-        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Idol, id, affected.clone())
-            .await
-            .map_err(AppError::DatabaseError)?;
-        search_outbox::outbox_fanout_records(&txn, &affected)
+        search_outbox::outbox_entity_delete(
+            &txn,
+            self.config.search_backend,
+            SearchEntityType::Idol,
+            id,
+            affected.clone(),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, self.config.search_backend, &affected)
             .await
             .map_err(AppError::DatabaseError)?;
 

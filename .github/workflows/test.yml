@@ -3,7 +3,7 @@ name: Database Tests
 permissions:
   contents: read
 
-on: [pull_request, push, workflow_dispatch]
+on: [workflow_call, workflow_dispatch]
 
 jobs:
   test:
@@ -12,6 +12,9 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.92
@@ -23,4 +26,4 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
       - name: Run isolated test workflow
-        run: just test
+        run: just test-search

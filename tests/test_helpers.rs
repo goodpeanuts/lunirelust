@@ -52,6 +52,11 @@ pub async fn create_test_router() -> Router {
     let config = Config::from_env()
         .expect("database integration tests require the isolated environment; run `just test`");
     let state = build_app_state(&pool, config);
+    state
+        .search_service
+        .trigger_startup_sync()
+        .await
+        .expect("initialize test search lifecycle");
     create_router(state)
 }
 

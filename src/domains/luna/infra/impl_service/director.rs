@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::domains::search::SearchEntityType;
 use crate::{
     common::error::AppError,
@@ -18,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct DirectorService {
     db: DatabaseConnection,
+    search_backend: SearchBackend,
     repo: Arc<dyn DirectorRepository + Send + Sync>,
     /// Separate handle for affinity-ordered listing. A `dyn DirectorRepository`
     /// object cannot expose `DirectorAffinityRepository` methods, so the
@@ -27,9 +29,13 @@ pub struct DirectorService {
 
 #[async_trait]
 impl DirectorServiceTrait for DirectorService {
-    fn create_service(db: DatabaseConnection) -> Arc<dyn DirectorServiceTrait> {
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn DirectorServiceTrait> {
         Arc::new(Self {
             db,
+            search_backend,
             repo: Arc::new(DirectorRepo {}),
             affinity_repo: Arc::new(DirectorRepo {}),
         })
@@ -110,6 +116,7 @@ impl DirectorServiceTrait for DirectorService {
         if was_created {
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Director,
                 director_id,
                 &entity_name,
@@ -132,10 +139,14 @@ impl DirectorServiceTrait for DirectorService {
 
         // Capture affected records BEFORE the update, so we still have them
         // if the update triggers a duplicate-merge that deletes this entity.
-        let pre_affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Director, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let pre_affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Director,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let director = match self.repo.update(&txn, id, payload).await {
             Ok(Some(d)) => d,
@@ -154,14 +165,21 @@ impl DirectorServiceTrait for DirectorService {
         let surviving_id = director.id;
         if surviving_id != id {
             // Duplicate-merge: the old entity was deleted. Remove its search doc.
-            search_outbox::outbox_entity_delete(&txn, SearchEntityType::Director, id, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            search_outbox::outbox_entity_delete(
+                &txn,
+                self.search_backend,
+                SearchEntityType::Director,
+                id,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
             // Records that pointed at the old entity need reindexing (their FK
             // was cascaded). Use the pre-update snapshot since the old row is gone.
             let mut all_affected = pre_affected.clone();
             let surviving_affected = search_outbox::find_affected_record_ids(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Director,
                 surviving_id,
             )
@@ -172,6 +190,7 @@ impl DirectorServiceTrait for DirectorService {
             all_affected.dedup();
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Director,
                 surviving_id,
                 &director.name,
@@ -179,13 +198,14 @@ impl DirectorServiceTrait for DirectorService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &all_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &all_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         } else {
             // Normal update: use the pre-update affected records.
             search_outbox::outbox_entity_upsert(
                 &txn,
+                self.search_backend,
                 SearchEntityType::Director,
                 id,
                 &director.name,
@@ -193,7 +213,7 @@ impl DirectorServiceTrait for DirectorService {
             )
             .await
             .map_err(AppError::DatabaseError)?;
-            search_outbox::outbox_fanout_records(&txn, &pre_affected)
+            search_outbox::outbox_fanout_records(&txn, self.search_backend, &pre_affected)
                 .await
                 .map_err(AppError::DatabaseError)?;
         }
@@ -206,10 +226,14 @@ impl DirectorServiceTrait for DirectorService {
         let txn = self.db.begin().await?;
 
         // Pre-delete snapshot: find affected records BEFORE delete
-        let affected =
-            search_outbox::find_affected_record_ids(&txn, SearchEntityType::Director, id)
-                .await
-                .map_err(AppError::DatabaseError)?;
+        let affected = search_outbox::find_affected_record_ids(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Director,
+            id,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         match self.repo.delete(&txn, id).await {
             Ok(true) => {}
@@ -223,10 +247,16 @@ impl DirectorServiceTrait for DirectorService {
             }
         }
 
-        search_outbox::outbox_entity_delete(&txn, SearchEntityType::Director, id, affected.clone())
-            .await
-            .map_err(AppError::DatabaseError)?;
-        search_outbox::outbox_fanout_records(&txn, &affected)
+        search_outbox::outbox_entity_delete(
+            &txn,
+            self.search_backend,
+            SearchEntityType::Director,
+            id,
+            affected.clone(),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        search_outbox::outbox_fanout_records(&txn, self.search_backend, &affected)
             .await
             .map_err(AppError::DatabaseError)?;
 

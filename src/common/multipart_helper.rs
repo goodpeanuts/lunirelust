@@ -1,6 +1,11 @@
 use std::collections::HashMap;
 
-use crate::{app::FORBIDDEN_PATTERNS, common::error::AppError, domains::file::FileDto};
+use crate::{common::error::AppError, domains::file::FileDto};
+
+// Retain the existing multipart metadata policy at its bounded parsing boundary.
+static FORBIDDEN_PATTERN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)<\s*script\b[^>]*>").expect("valid multipart metadata pattern")
+});
 
 const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
 
@@ -36,7 +41,7 @@ async fn parse_multipart_internal(
             .ok_or_else(|| AppError::ValidationError("Field name is missing".to_owned()))?
             .to_owned();
 
-        if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(&name)) {
+        if FORBIDDEN_PATTERN.is_match(&name) {
             tracing::error!("Invalid field name: {}", name);
             return Err(AppError::Forbidden);
         }
@@ -47,10 +52,7 @@ async fn parse_multipart_internal(
                 tracing::error!("Invalid file name: {}", original_filename);
                 return Err(AppError::InvalidFileName);
             }
-            if FORBIDDEN_PATTERNS
-                .iter()
-                .any(|re| re.is_match(&original_filename))
-            {
+            if FORBIDDEN_PATTERN.is_match(&original_filename) {
                 tracing::error!("Invalid file name: {}", original_filename);
                 return Err(AppError::Forbidden);
             }
@@ -70,7 +72,7 @@ async fn parse_multipart_internal(
             });
         } else {
             let text = field.text().await.map_err(map_err_internal)?;
-            if FORBIDDEN_PATTERNS.iter().any(|re| re.is_match(&text)) {
+            if FORBIDDEN_PATTERN.is_match(&text) {
                 tracing::error!("Invalid text field value: {}", text);
                 return Err(AppError::Forbidden);
             }

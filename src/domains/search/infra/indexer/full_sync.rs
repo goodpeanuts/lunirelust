@@ -5,10 +5,8 @@ use std::sync::Arc;
 use sea_orm::DatabaseConnection;
 
 use crate::domains::search::domain::repository::search_repo::SearchRepository as _;
-use crate::domains::search::domain::repository::tombstone_repo::TombstoneRepository as _;
 use crate::domains::search::infra::embedding::embedding_service::EmbeddingService;
 use crate::domains::search::infra::meilisearch::meilisearch_repo::MeiliSearchRepo;
-use crate::domains::search::infra::tombstone_repo_impl::TombstoneRepo;
 use crate::domains::search::SearchEntityType;
 
 use super::document_builder::{build_documents_for_ids, fetch_entity_ids};
@@ -16,7 +14,7 @@ use super::indexer_service::wrap_vectors;
 
 pub(super) const SYNC_BATCH_SIZE: usize = 100;
 
-/// Populate an empty index from the primary database.
+/// Refresh the index from the primary database in bounded batches.
 ///
 /// Every entity type uses the same bounded batch path, so a full recovery
 /// creates at most one search-engine task per 100 documents.
@@ -25,9 +23,8 @@ pub(super) async fn run_full_sync(
     search_repo: &Arc<MeiliSearchRepo>,
     embedding_service: &Arc<EmbeddingService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let sync_version = chrono::Utc::now()
-        .timestamp_nanos_opt()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() * 1_000_000);
+    // A repair must not outrank a concurrent business transaction's outbox event.
+    let sync_version = 0;
     let full_sync_start = std::time::Instant::now();
 
     for &entity_type in SearchEntityType::ALL {
@@ -40,18 +37,6 @@ pub(super) async fn run_full_sync(
             let mut docs = build_documents_for_ids(db, entity_type, chunk, sync_version).await?;
             add_embeddings(&mut docs, embedding_service).await;
             search_repo.batch_upsert(&docs).await?;
-
-            let versions: Vec<(String, String, i64)> = docs
-                .iter()
-                .map(|doc| {
-                    (
-                        doc.entity_type.as_str().to_owned(),
-                        doc.entity_id.clone(),
-                        sync_version,
-                    )
-                })
-                .collect();
-            TombstoneRepo::upsert_versions_batch(db, &versions).await?;
 
             indexed += docs.len();
             let batch_number = indexed.div_ceil(SYNC_BATCH_SIZE);

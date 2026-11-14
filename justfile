@@ -24,6 +24,10 @@ dev-down: ensure-dev-env
 test:
     ./scripts/env-run.sh .env.test ./scripts/workflow.sh test
 
+# Also exercise live Meilisearch integrations; embeddings use deterministic fakes.
+test-search:
+    ./scripts/env-run.sh .env.test ./scripts/workflow.sh test-search
+
 test-db:
     ./scripts/env-run.sh .env.test ./scripts/workflow.sh test-up
 
@@ -32,7 +36,6 @@ test-db-down:
 
 # Static quality gates; no database is required.
 check:
-    cargo check --quiet --workspace --all-targets
     cargo fmt --all -- --check
     cargo clippy --quiet --workspace --all-targets --all-features -- -D warnings -W clippy::all
 
@@ -53,10 +56,10 @@ vendor:
     cat .cargo/config.toml .cargo/config.vendor.toml > .cargo/config.docker.toml
 
 build: ensure-dev-env vendor
-    ./scripts/env-run.sh .env docker compose --project-name lunirelust-dev --env-file .env -f compose.dev.yml -f docker-compose.build.yml up -d --build
+    ./scripts/env-run.sh .env ./scripts/workflow.sh build
 
 build-down: ensure-dev-env
-    ./scripts/env-run.sh .env docker compose --project-name lunirelust-dev --env-file .env -f compose.dev.yml -f docker-compose.build.yml down --remove-orphans
+    ./scripts/env-run.sh .env ./scripts/workflow.sh build-down
 
 audit:
     cargo deny check -d

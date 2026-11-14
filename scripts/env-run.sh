@@ -23,7 +23,7 @@ fi
 # explicitly selected file. Names are inspected only; values are never printed.
 while IFS='=' read -r name _; do
     case "$name" in
-        APP_ENV|LUNA_ENV|DATABASE_URL|COMPOSE_PROJECT_NAME|DEPLOY_ENV_FILE|POSTGRES_*|MEILI_*|ASSETS_*)
+        APP_ENV|LUNA_ENV|DATABASE_URL|DATABASE_*|COMPOSE_PROJECT_NAME|COMPOSE_PROFILES|DEPLOY_ENV_FILE|SEARCH_BACKEND|POSTGRES_*|MEILI_*|VLLM_*|ASSETS_*)
             unset "$name"
             ;;
     esac

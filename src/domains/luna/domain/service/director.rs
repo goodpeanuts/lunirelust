@@ -1,3 +1,4 @@
+use crate::common::config::SearchBackend;
 use crate::{
     common::error::AppError,
     domains::luna::dto::{
@@ -14,7 +15,10 @@ use std::sync::Arc;
 /// Trait defining business operations for director management.
 pub trait DirectorServiceTrait: Send + Sync {
     /// Constructor for the service.
-    fn create_service(db: DatabaseConnection) -> Arc<dyn DirectorServiceTrait>
+    fn create_service(
+        db: DatabaseConnection,
+        search_backend: SearchBackend,
+    ) -> Arc<dyn DirectorServiceTrait>
     where
         Self: Sized;
 

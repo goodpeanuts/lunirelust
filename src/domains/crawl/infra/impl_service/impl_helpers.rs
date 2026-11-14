@@ -293,23 +293,25 @@ impl CrawlService {
             }
         };
 
-        if let Err(e) = self.insert_nested_outbox_events(&txn, &nested).await {
-            let _ = txn.rollback().await;
-            return Err(e);
-        }
+        if self.config.search_backend.indexing_enabled() {
+            if let Err(e) = self.insert_nested_outbox_events(&txn, &nested).await {
+                let _ = txn.rollback().await;
+                return Err(e);
+            }
 
-        let version = Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
-        if let Err(e) =
-            OutboxRepo::insert_event(&txn, "record", &id, "upsert", version, None, None).await
-        {
-            let _ = txn.rollback().await;
-            return Err(AppError::DatabaseError(e));
-        }
-        if let Err(e) = TombstoneRepo::upsert_version(&txn, "record", &id, version).await {
-            let _ = txn.rollback().await;
-            return Err(AppError::DatabaseError(e));
+            let version = Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| Utc::now().timestamp_millis() * 1_000_000);
+            if let Err(e) =
+                OutboxRepo::insert_event(&txn, "record", &id, "upsert", version, None, None).await
+            {
+                let _ = txn.rollback().await;
+                return Err(AppError::DatabaseError(e));
+            }
+            if let Err(e) = TombstoneRepo::upsert_version(&txn, "record", &id, version).await {
+                let _ = txn.rollback().await;
+                return Err(AppError::DatabaseError(e));
+            }
         }
 
         txn.commit().await.map_err(AppError::DatabaseError)?;
@@ -474,22 +476,43 @@ impl CrawlService {
             (SearchEntityType::Series, &nested.series),
         ] {
             if let Some((entity_id, entity_name)) = entity_info {
-                outbox_entity_upsert(txn, entity_type, *entity_id, entity_name, vec![])
-                    .await
-                    .map_err(AppError::DatabaseError)?;
+                outbox_entity_upsert(
+                    txn,
+                    self.config.search_backend,
+                    entity_type,
+                    *entity_id,
+                    entity_name,
+                    vec![],
+                )
+                .await
+                .map_err(AppError::DatabaseError)?;
             }
         }
 
         for (genre_id, genre_name) in &nested.genres {
-            outbox_entity_upsert(txn, SearchEntityType::Genre, *genre_id, genre_name, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            outbox_entity_upsert(
+                txn,
+                self.config.search_backend,
+                SearchEntityType::Genre,
+                *genre_id,
+                genre_name,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
         }
 
         for (idol_id, idol_name) in &nested.idols {
-            outbox_entity_upsert(txn, SearchEntityType::Idol, *idol_id, idol_name, vec![])
-                .await
-                .map_err(AppError::DatabaseError)?;
+            outbox_entity_upsert(
+                txn,
+                self.config.search_backend,
+                SearchEntityType::Idol,
+                *idol_id,
+                idol_name,
+                vec![],
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
         }
 
         Ok(())
