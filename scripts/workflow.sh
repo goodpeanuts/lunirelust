@@ -64,9 +64,9 @@ start_test_infrastructure() {
     cleanup_test
     mkdir -p "$repo_root/.local/test/assets/public" "$repo_root/.local/test/assets/private"
     mkdir -p "$repo_root/.local/test/assets/private/profile_picture"
-    install -m 0644 "$repo_root/assets/public/images.jpeg" \
+    install -m 0644 "$repo_root/tests/asset/images.jpeg" \
         "$repo_root/.local/test/assets/public/images.jpeg"
-    install -m 0644 "$repo_root/assets/private/profile_picture/images.jpeg" \
+    install -m 0644 "$repo_root/tests/asset/images.jpeg" \
         "$repo_root/.local/test/assets/private/profile_picture/images.jpeg"
     "${test_compose[@]}" up -d --wait
     if [[ "${1:-}" == "search" ]]; then

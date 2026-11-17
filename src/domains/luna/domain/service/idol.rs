@@ -24,13 +24,6 @@ pub trait IdolServiceTrait: Send + Sync {
     /// Retrieves idol list by condition
     async fn get_idol_list(&self, search_dto: SearchIdolDto) -> Result<Vec<IdolDto>, AppError>;
 
-    /// Retrieves idol list with pagination
-    async fn get_idol_list_paginated(
-        &self,
-        search_dto: SearchIdolDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<IdolDto>, AppError>;
-
     /// Retrieves the idol list ordered by the given user's affinity score.
     async fn get_idol_list_by_affinity(
         &self,
@@ -38,9 +31,6 @@ pub trait IdolServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_id: String,
     ) -> Result<PaginatedResponse<IdolDto>, AppError>;
-
-    /// Retrieves all idols.
-    async fn get_idols(&self) -> Result<Vec<IdolDto>, AppError>;
 
     /// Creates a new idol.
     async fn create_idol(&self, create_dto: CreateIdolDto) -> Result<IdolDto, AppError>;

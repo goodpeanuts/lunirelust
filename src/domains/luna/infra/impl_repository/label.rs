@@ -9,14 +9,13 @@ use crate::entities::{label, record, LabelEntity, RecordEntity};
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, Statement, Value,
+    EntityTrait as _, FromQueryResult, QueryFilter as _, Statement, Value,
 };
 
 impl_named_entity_repo!(
-    paginated;
     LabelRepo, Label, label, LabelEntity,
-    LabelRepository, SearchLabelDto, CreateLabelDto, UpdateLabelDto,
-    get_label_record_counts, RecordEntity, record, LabelId
+    LabelRepository, CreateLabelDto, UpdateLabelDto,
+    get_label_record_counts, RecordEntity, record, LabelId;
 );
 
 // Tunable hyper-parameters for the affinity score. These are fixed constants

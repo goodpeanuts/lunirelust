@@ -52,19 +52,6 @@ impl RecordServiceTrait for RecordService {
             .ok_or_else(|| AppError::NotFound("Record not found".into()))
     }
 
-    async fn get_record_list(
-        &self,
-        search_dto: SearchRecordDto,
-    ) -> Result<Vec<RecordDto>, AppError> {
-        let records = self
-            .repo
-            .find_list(&self.db, search_dto)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(records.into_iter().map(RecordDto::from).collect())
-    }
-
     async fn get_record_list_paginated(
         &self,
         search_dto: SearchRecordDto,
@@ -83,16 +70,6 @@ impl RecordServiceTrait for RecordService {
             previous: paginated.previous,
             results: paginated.results.into_iter().map(RecordDto::from).collect(),
         })
-    }
-
-    async fn get_records(&self) -> Result<Vec<RecordDto>, AppError> {
-        let records = self
-            .repo
-            .find_all(&self.db)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(records.into_iter().map(RecordDto::from).collect())
     }
 
     async fn get_all_record_ids(

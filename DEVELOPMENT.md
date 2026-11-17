@@ -436,8 +436,12 @@ layout. Conventional Commit subjects use `type(scope): summary` with optional sc
 Keep credentials, deployment configuration, host details, backups, and real data
 out of the public repository and build context. The public contributor rules in
 [CLAUDE.md](CLAUDE.md) work without private documentation access. OpenSpec is retired;
-its private archive is historical evidence, not an active change workflow. Keep
-current documentation short and update it with the behavior it describes.
+retired proposals and completed plans remain in Git history, linked from the private
+index. Keep one owning guide for each procedure and remove superseded instructions.
+Current documentation should describe implemented behavior, not future scaffolding.
+Static test images live in `tests/asset/`; runtime uploads and legacy asset layouts
+remain untracked. Database migrations and generated API snapshots retain their
+separate lifecycle and are not deleted as unused source.
 
 `subm` is a separate Git repository; the parent records a commit SHA, not a branch.
 Check out a topic branch inside it before editing. When publishing changes, push the

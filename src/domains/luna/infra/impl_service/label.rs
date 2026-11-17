@@ -50,33 +50,6 @@ impl LabelServiceTrait for LabelService {
             .ok_or_else(|| AppError::NotFound("Label not found".into()))
     }
 
-    async fn get_label_list(&self, search_dto: SearchLabelDto) -> Result<Vec<LabelDto>, AppError> {
-        let labels = self.repo.find_list(&self.db, search_dto).await?;
-        Ok(labels.into_iter().map(Into::into).collect())
-    }
-
-    async fn get_label_list_paginated(
-        &self,
-        search_dto: SearchLabelDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<LabelDto>, AppError> {
-        let paginated = self
-            .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
-            .await?;
-        Ok(PaginatedResponse {
-            count: paginated.count,
-            next: paginated.next,
-            previous: paginated.previous,
-            results: paginated.results.into_iter().map(Into::into).collect(),
-        })
-    }
-
-    async fn get_labels(&self) -> Result<Vec<LabelDto>, AppError> {
-        let labels = self.repo.find_all(&self.db).await?;
-        Ok(labels.into_iter().map(Into::into).collect())
-    }
-
     async fn get_label_list_by_affinity(
         &self,
         search_dto: SearchLabelDto,

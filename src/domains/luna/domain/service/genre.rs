@@ -25,16 +25,6 @@ pub trait GenreServiceTrait: Send + Sync {
     /// Retrieves a genre by their unique identifier.
     async fn get_genre_by_id(&self, id: i64) -> Result<GenreDto, AppError>;
 
-    /// Retrieves genre list by condition
-    async fn get_genre_list(&self, search_dto: SearchGenreDto) -> Result<Vec<GenreDto>, AppError>;
-
-    /// Retrieves genre list with pagination
-    async fn get_genre_list_paginated(
-        &self,
-        search_dto: SearchGenreDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<GenreDto>, AppError>;
-
     /// Retrieves the genre list ordered by the given user's affinity score.
     async fn get_genre_list_by_affinity(
         &self,
@@ -42,9 +32,6 @@ pub trait GenreServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_id: String,
     ) -> Result<PaginatedResponse<GenreDto>, AppError>;
-
-    /// Retrieves all genres.
-    async fn get_genres(&self) -> Result<Vec<GenreDto>, AppError>;
 
     /// Creates a new genre.
     async fn create_genre(&self, create_dto: CreateGenreDto) -> Result<GenreDto, AppError>;

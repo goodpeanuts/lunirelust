@@ -25,16 +25,6 @@ pub trait LabelServiceTrait: Send + Sync {
     /// Retrieves a label by their unique identifier.
     async fn get_label_by_id(&self, id: i64) -> Result<LabelDto, AppError>;
 
-    /// Retrieves label list by condition
-    async fn get_label_list(&self, search_dto: SearchLabelDto) -> Result<Vec<LabelDto>, AppError>;
-
-    /// Retrieves label list with pagination
-    async fn get_label_list_paginated(
-        &self,
-        search_dto: SearchLabelDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<LabelDto>, AppError>;
-
     /// Retrieves the label list ordered by the given user's affinity score.
     async fn get_label_list_by_affinity(
         &self,
@@ -42,9 +32,6 @@ pub trait LabelServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_id: String,
     ) -> Result<PaginatedResponse<LabelDto>, AppError>;
-
-    /// Retrieves all labels.
-    async fn get_labels(&self) -> Result<Vec<LabelDto>, AppError>;
 
     /// Creates a new label.
     async fn create_label(&self, create_dto: CreateLabelDto) -> Result<LabelDto, AppError>;

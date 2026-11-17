@@ -50,36 +50,6 @@ impl DirectorServiceTrait for DirectorService {
             .ok_or_else(|| AppError::NotFound("Director not found".into()))
     }
 
-    async fn get_director_list(
-        &self,
-        search_dto: SearchDirectorDto,
-    ) -> Result<Vec<DirectorDto>, AppError> {
-        let directors = self.repo.find_list(&self.db, search_dto).await?;
-        Ok(directors.into_iter().map(Into::into).collect())
-    }
-
-    async fn get_director_list_paginated(
-        &self,
-        search_dto: SearchDirectorDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<DirectorDto>, AppError> {
-        let paginated = self
-            .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
-            .await?;
-        Ok(PaginatedResponse {
-            count: paginated.count,
-            next: paginated.next,
-            previous: paginated.previous,
-            results: paginated.results.into_iter().map(Into::into).collect(),
-        })
-    }
-
-    async fn get_directors(&self) -> Result<Vec<DirectorDto>, AppError> {
-        let directors = self.repo.find_all(&self.db).await?;
-        Ok(directors.into_iter().map(Into::into).collect())
-    }
-
     async fn get_director_list_by_affinity(
         &self,
         search_dto: SearchDirectorDto,

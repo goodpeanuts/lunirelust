@@ -9,14 +9,13 @@ use crate::entities::{genre, record_genre, GenreEntity, RecordGenreEntity};
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, Statement, Value,
+    EntityTrait as _, FromQueryResult, QueryFilter as _, Statement, Value,
 };
 
 impl_named_entity_repo!(
-    paginated;
     GenreRepo, Genre, genre, GenreEntity,
-    GenreRepository, SearchGenreDto, CreateGenreDto, UpdateGenreDto,
-    get_genre_record_counts, RecordGenreEntity, record_genre, GenreId
+    GenreRepository, CreateGenreDto, UpdateGenreDto,
+    get_genre_record_counts, RecordGenreEntity, record_genre, GenreId;
 );
 
 // Tunable hyper-parameters for the affinity score. These are fixed constants

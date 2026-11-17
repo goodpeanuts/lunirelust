@@ -9,23 +9,47 @@ use crate::entities::{idol, idol_participation, IdolEntity, IdolParticipationEnt
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, Statement, Value,
+    EntityTrait as _, FromQueryResult, QueryFilter as _, Statement, Value,
 };
 
 impl_named_entity_repo!(
-    paginated;
     IdolRepo,
     Idol,
     idol,
     IdolEntity,
     IdolRepository,
-    SearchIdolDto,
     CreateIdolDto,
     UpdateIdolDto,
     get_idol_record_counts,
     IdolParticipationEntity,
     idol_participation,
-    IdolId
+    IdolId;
+    async fn find_all(
+        &self,
+        db: &sea_orm::DatabaseConnection,
+    ) -> Result<Vec<Idol>, sea_orm::DbErr> {
+        let items = IdolEntity::find().all(db).await?;
+        Ok(items.into_iter().map(<Idol>::from).collect())
+    }
+
+    async fn find_list(
+        &self,
+        db: &sea_orm::DatabaseConnection,
+        search_dto: SearchIdolDto,
+    ) -> Result<Vec<Idol>, sea_orm::DbErr> {
+        let mut query = IdolEntity::find();
+        if let Some(id) = search_dto.id {
+            query = query.filter(idol::Column::Id.eq(id));
+        }
+        if let Some(name) = search_dto.name.as_deref().filter(|s| !s.trim().is_empty()) {
+            query = query.filter(idol::Column::Name.contains(name));
+        }
+        if let Some(link) = search_dto.link.as_deref().filter(|s| !s.trim().is_empty()) {
+            query = query.filter(idol::Column::Link.contains(link));
+        }
+        let results = query.all(db).await?;
+        Ok(results.into_iter().map(<Idol>::from).collect())
+    }
 );
 
 // Tunable hyper-parameters for the affinity score. These are fixed constants

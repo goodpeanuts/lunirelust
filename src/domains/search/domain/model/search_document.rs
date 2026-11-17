@@ -75,16 +75,6 @@ pub struct SearchDocument {
     pub vectors: Option<JsonValue>,
 }
 
-/// Event types for outbox sync events.
-// allow: test 构建下 dead_code 不触发，expect 会报 unfulfilled
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SyncEventType {
-    Upsert,
-    Delete,
-}
-
 /// Entity types in the search index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -261,19 +251,5 @@ mod tests {
     fn test_search_entity_type_unknown_returns_none() {
         assert!(SearchEntityType::from_str("unknown").is_err());
         assert!(SearchEntityType::from_str("").is_err());
-    }
-
-    #[test]
-    fn test_sync_event_type_serde() {
-        let upsert_json =
-            serde_json::to_string(&SyncEventType::Upsert).expect("serializing SyncEventType");
-        assert_eq!(upsert_json, "\"upsert\"");
-        let delete_json =
-            serde_json::to_string(&SyncEventType::Delete).expect("serializing SyncEventType");
-        assert_eq!(delete_json, "\"delete\"");
-
-        let parsed: SyncEventType =
-            serde_json::from_str("\"upsert\"").expect("deserializing SyncEventType");
-        assert_eq!(parsed, SyncEventType::Upsert);
     }
 }

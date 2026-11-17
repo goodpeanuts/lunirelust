@@ -9,14 +9,13 @@ use crate::entities::{director, record, DirectorEntity, RecordEntity};
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, Statement, Value,
+    EntityTrait as _, FromQueryResult, QueryFilter as _, Statement, Value,
 };
 
 impl_named_entity_repo!(
-    paginated;
     DirectorRepo, Director, director, DirectorEntity,
-    DirectorRepository, SearchDirectorDto, CreateDirectorDto, UpdateDirectorDto,
-    get_director_record_counts, RecordEntity, record, DirectorId
+    DirectorRepository, CreateDirectorDto, UpdateDirectorDto,
+    get_director_record_counts, RecordEntity, record, DirectorId;
 );
 
 // Tunable hyper-parameters for the affinity score. These are fixed constants

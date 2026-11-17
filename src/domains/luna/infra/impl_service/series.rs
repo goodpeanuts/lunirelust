@@ -53,38 +53,6 @@ impl SeriesServiceTrait for SeriesService {
             .ok_or_else(|| AppError::NotFound("Series not found".into()))
     }
 
-    async fn get_series_list(
-        &self,
-        search_dto: SearchSeriesDto,
-    ) -> Result<Vec<SeriesDto>, AppError> {
-        let series = self
-            .repo
-            .find_list(&self.db, search_dto)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(series.into_iter().map(SeriesDto::from).collect())
-    }
-
-    async fn get_series_list_paginated(
-        &self,
-        search_dto: SearchSeriesDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<SeriesDto>, AppError> {
-        let paginated = self
-            .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(PaginatedResponse {
-            count: paginated.count,
-            next: paginated.next,
-            previous: paginated.previous,
-            results: paginated.results.into_iter().map(SeriesDto::from).collect(),
-        })
-    }
-
     async fn get_series_list_by_affinity(
         &self,
         search_dto: SearchSeriesDto,
@@ -103,16 +71,6 @@ impl SeriesServiceTrait for SeriesService {
             previous: paginated.previous,
             results: paginated.results.into_iter().map(SeriesDto::from).collect(),
         })
-    }
-
-    async fn get_series(&self) -> Result<Vec<SeriesDto>, AppError> {
-        let series = self
-            .repo
-            .find_all(&self.db)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(series.into_iter().map(SeriesDto::from).collect())
     }
 
     async fn create_series(&self, create_dto: CreateSeriesDto) -> Result<SeriesDto, AppError> {

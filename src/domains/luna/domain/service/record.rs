@@ -51,12 +51,6 @@ pub trait RecordServiceTrait: Send + Sync {
         user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordSlimDto>, AppError>;
 
-    /// Retrieves record list by condition
-    async fn get_record_list(
-        &self,
-        search_dto: SearchRecordDto,
-    ) -> Result<Vec<RecordDto>, AppError>;
-
     /// Retrieves record list with pagination
     async fn get_record_list_paginated(
         &self,
@@ -64,9 +58,6 @@ pub trait RecordServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_filter: Option<UserFilter>,
     ) -> Result<PaginatedResponse<RecordDto>, AppError>;
-
-    /// Retrieves all records.
-    async fn get_records(&self) -> Result<Vec<RecordDto>, AppError>;
 
     /// Creates a new record.
     async fn create_record(&self, create_dto: CreateRecordDto) -> Result<RecordDto, AppError>;

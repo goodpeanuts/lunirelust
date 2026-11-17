@@ -25,14 +25,6 @@ pub trait IdolRepository: Send + Sync {
         search_dto: SearchIdolDto,
     ) -> Result<Vec<Idol>, DbErr>;
 
-    /// Finds idol list with pagination
-    async fn find_list_paginated(
-        &self,
-        db: &DatabaseConnection,
-        search_dto: SearchIdolDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<Idol>, DbErr>;
-
     /// Creates a new idol record within an active transaction.
     async fn create(
         &self,

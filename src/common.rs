@@ -10,5 +10,4 @@ pub mod multipart_helper;
 pub mod openapi;
 #[cfg(feature = "opentelemetry")]
 pub mod opentelemetry;
-pub mod pagination;
 pub mod ts_format;

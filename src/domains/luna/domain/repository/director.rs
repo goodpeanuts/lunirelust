@@ -11,27 +11,9 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
 #[async_trait]
 /// Trait representing repository-level operations for director entities.
 pub trait DirectorRepository: Send + Sync {
-    /// Retrieves all directors from the database.
-    async fn find_all(&self, db: &DatabaseConnection) -> Result<Vec<Director>, DbErr>;
-
     /// Finds a director by their unique identifier.
     async fn find_by_id(&self, db: &DatabaseConnection, id: i64)
         -> Result<Option<Director>, DbErr>;
-
-    /// Finds director list by condition
-    async fn find_list(
-        &self,
-        db: &DatabaseConnection,
-        search_dto: SearchDirectorDto,
-    ) -> Result<Vec<Director>, DbErr>;
-
-    /// Finds director list with pagination
-    async fn find_list_paginated(
-        &self,
-        db: &DatabaseConnection,
-        search_dto: SearchDirectorDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<Director>, DbErr>;
 
     /// Creates a new director record within an active transaction.
     async fn create(
