@@ -9,7 +9,9 @@ function fixture(overrides = {}) {
   const fetch = async (url, options = {}) => {
     const route = new URL(url).pathname;
     calls.push(route);
-    if (route === '/health') return new Response('ok');
+    if (route === '/health') return new Response('OK\n', {
+      headers: overrides.healthHeaders ?? { 'x-search-backend': 'postgres' },
+    });
     if (route === '/auth/login') {
       assert.deepEqual(JSON.parse(options.body), { client_id: 'apitest01', client_secret: 'test_password' });
       return Response.json({ data: { access_token: 'synthetic-token' } });
@@ -43,5 +45,13 @@ test('liveness alone, wrong search mode, and altered file bytes cannot pass imag
   assert.ok(existsSync(require('node:path').resolve('scripts/ci/image-api-smoke.cjs')), 'API acceptance helper missing');
   for (const overrides of [{ users: [] }, { mode: 'keyword_only' }, { file: Buffer.from('wrong') }]) {
     await assert.rejects(require(helper).acceptApi(fixture(overrides).fetch));
+  }
+});
+
+test('legacy images and an enhanced search policy cannot pass lightweight acceptance', async () => {
+  for (const healthHeaders of [{}, { 'x-search-backend': 'meili-hybrid' }]) {
+    const data = fixture({ healthHeaders });
+    await assert.rejects(require(helper).acceptApi(data.fetch), /search policy/);
+    assert.deepEqual(data.calls, ['/health']);
   }
 });

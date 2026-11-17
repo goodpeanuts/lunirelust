@@ -38,6 +38,12 @@ prepare_dev_directories() {
 
 start_dev_infrastructure() {
     prepare_dev_directories
+    # Compose profiles select startup services; they do not stop old containers.
+    case "${SEARCH_BACKEND:-postgres}" in
+        postgres) "${dev_compose[@]}" --profile hybrid stop meilisearch vllm ;;
+        meili-keyword) "${dev_compose[@]}" --profile hybrid stop vllm ;;
+        meili-hybrid) ;;
+    esac
     "${dev_compose[@]}" up -d --wait
 }
 

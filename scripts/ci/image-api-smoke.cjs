@@ -6,12 +6,18 @@ async function acceptApi(request = fetch) {
   const base = 'http://127.0.0.1:8012';
   const get = (path, options = {}) => request(base + path, { ...options, signal: AbortSignal.timeout(10000) });
   let healthy = false;
+  let searchPolicy;
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    try { healthy = (await get('/health')).ok; } catch { /* Wait for application startup. */ }
+    try {
+      const response = await get('/health');
+      healthy = response.ok;
+      searchPolicy = response.headers.get('x-search-backend');
+    } catch { /* Wait for application startup. */ }
     if (healthy) break;
     await delay(1000);
   }
   assert.ok(healthy, 'application liveness did not become healthy');
+  assert.equal(searchPolicy, 'postgres', 'runtime search policy must be PostgreSQL');
   const login = await get('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_id: 'apitest01', client_secret: 'test_password' }) });
   assert.ok(login.ok, 'seed user login failed');

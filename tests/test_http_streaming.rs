@@ -5,10 +5,47 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt as _;
 use lunirelust::app::create_router;
 use lunirelust::common::bootstrap::build_app_state;
-use lunirelust::common::config::{setup_test_database, Config};
+use lunirelust::common::config::{setup_test_database, Config, SearchBackend};
 use lunirelust::common::jwt::{Claims, KEYS};
 use sea_orm::{ConnectionTrait as _, DbBackend, Statement};
 use tower::ServiceExt as _;
+
+#[tokio::test]
+async fn health_reports_the_active_search_policy_without_changing_liveness() {
+    let mut config = Config::from_env().expect("use .env.test");
+    let db = setup_test_database(&config).await.expect("test database");
+    for (backend, name) in [
+        (SearchBackend::Postgres, "postgres"),
+        (SearchBackend::MeiliKeyword, "meili-keyword"),
+        (SearchBackend::MeiliHybrid, "meili-hybrid"),
+    ] {
+        config.search_backend = backend;
+        let app = create_router(build_app_state(&db, config.clone()));
+        let response = app
+            .oneshot(
+                Request::get("/health")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("health response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-search-backend")
+                .expect("search policy"),
+            name
+        );
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("health body")
+            .to_bytes();
+        assert_eq!(body.as_ref(), b"OK\n");
+    }
+}
 
 #[tokio::test]
 async fn debug_logging_preserves_live_sse_and_request_limits() {

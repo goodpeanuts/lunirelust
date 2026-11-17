@@ -1,6 +1,6 @@
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, State},
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE},
         HeaderValue, Method, StatusCode,
@@ -153,8 +153,13 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn health_check() -> &'static str {
-    "OK\n"
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    // Deployment checks must distinguish this binary's policy from legacy images
+    // that ignore SEARCH_BACKEND and automatically enable enhanced search.
+    (
+        [("x-search-backend", state.config.search_backend.as_str())],
+        "OK\n",
+    )
 }
 
 /// Fallback handler for unmatched routes

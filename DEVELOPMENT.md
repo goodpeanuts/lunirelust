@@ -50,10 +50,17 @@ Only the development overlay offers the optional GPU service.
 | `meili-keyword` | PostgreSQL + MeiliSearch (`search` profile) | Keyword search, SQL fallback |
 | `meili-hybrid` | PostgreSQL + MeiliSearch + vLLM (`hybrid` profile) | Optional semantic ranking, keyword/SQL fallback |
 
-Switch modes by stopping the dev stack, editing `.env`, and starting it again.
+Switch modes by editing `.env` and restarting the backend with `just dev`.
+Startup stops optional middleware that the new mode does not select and preserves
+its data and model cache. An already running backend must be restarted to load
+the new mode; `just dev-infra` changes only middleware.
 Hybrid mode requires a compatible GPU, model cache/download, and additional memory;
 it is optional. `COMPOSE_PROFILES` inherited from the terminal is cleared so backend
 selection is explicit. Production uses the equivalent private Compose profiles.
+
+`GET /health` keeps its HTTP 200 and `OK\n` body, with `x-search-backend` reporting
+the configured policy. Deployment checks can reject legacy images that ignore the
+setting. The header is a policy check, not enhanced-index readiness.
 
 PostgreSQL responses retain the API mode string `sql_fallback` for compatibility.
 SQL results use record date descending and ID ascending, followed by director,

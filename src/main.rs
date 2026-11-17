@@ -34,6 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     let config = Config::from_env()?;
+    info!(
+        search_backend = config.search_backend.as_str(),
+        search_indexing = config.search_backend.indexing_enabled(),
+        vector_search = config.search_backend.embeddings_enabled(),
+        "Configured search policy (enhanced search requires explicit opt-in)"
+    );
     let pool = setup_database(&config).await?;
     let state = build_app_state(&pool, config.clone());
 

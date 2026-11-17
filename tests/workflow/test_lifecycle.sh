@@ -98,6 +98,21 @@ printf '\nASSETS_PUBLIC_PATH=assets/public\nASSETS_PRIVATE_PATH=assets/private\n
 rm -rf -- "$legacy/assets"
 "$legacy/scripts/env-run.sh" .env "$legacy/scripts/workflow.sh" dev-infra > "$scratch/legacy-dev.log" 2>&1 \
     || fail "configured legacy development asset directories were not prepared"
+
+# Changing a profile must stop middleware left from an earlier enhanced session.
+for mode in postgres meili-keyword meili-hybrid; do
+    selection="$scratch/mode-$mode"
+    make_checkout "$selection"
+    printf '\nSEARCH_BACKEND=%s\n' "$mode" >> "$selection/.env"
+    : > "$EVENTS"
+    "$selection/scripts/env-run.sh" .env "$selection/scripts/workflow.sh" dev-infra \
+        > "$scratch/$mode.log" 2>&1 || fail "$mode development startup failed"
+    case "$mode" in
+        postgres) grep -q -- '--profile hybrid stop meilisearch vllm' "$EVENTS" || fail "PostgreSQL left enhanced services running" ;;
+        meili-keyword) grep -q -- '--profile hybrid stop vllm' "$EVENTS" || fail "keyword mode left embeddings running" ;;
+        meili-hybrid) if grep -q ' stop ' "$EVENTS"; then fail "hybrid mode stopped its selected middleware"; fi ;;
+    esac
+done
 : > "$EVENTS"
 
 # Invalid identities and asset paths must fail before the first destructive command.
