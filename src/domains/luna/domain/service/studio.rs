@@ -25,19 +25,6 @@ pub trait StudioServiceTrait: Send + Sync {
     /// Retrieves a studio by their unique identifier.
     async fn get_studio_by_id(&self, id: i64) -> Result<StudioDto, AppError>;
 
-    /// Retrieves studio list by condition
-    async fn get_studio_list(
-        &self,
-        search_dto: SearchStudioDto,
-    ) -> Result<Vec<StudioDto>, AppError>;
-
-    /// Retrieves studio list with pagination
-    async fn get_studio_list_paginated(
-        &self,
-        search_dto: SearchStudioDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<StudioDto>, AppError>;
-
     /// Retrieves the studio list ordered by the given user's affinity score.
     async fn get_studio_list_by_affinity(
         &self,
@@ -45,9 +32,6 @@ pub trait StudioServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_id: String,
     ) -> Result<PaginatedResponse<StudioDto>, AppError>;
-
-    /// Retrieves all studios.
-    async fn get_studios(&self) -> Result<Vec<StudioDto>, AppError>;
 
     /// Creates a new studio.
     async fn create_studio(&self, create_dto: CreateStudioDto) -> Result<StudioDto, AppError>;

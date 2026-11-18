@@ -38,6 +38,12 @@ prepare_dev_directories() {
 
 start_dev_infrastructure() {
     prepare_dev_directories
+    # Compose profiles select startup services; they do not stop old containers.
+    case "${SEARCH_BACKEND:-postgres}" in
+        postgres) "${dev_compose[@]}" --profile hybrid stop meilisearch vllm ;;
+        meili-keyword) "${dev_compose[@]}" --profile hybrid stop vllm ;;
+        meili-hybrid) ;;
+    esac
     "${dev_compose[@]}" up -d --wait
 }
 
@@ -58,9 +64,9 @@ start_test_infrastructure() {
     cleanup_test
     mkdir -p "$repo_root/.local/test/assets/public" "$repo_root/.local/test/assets/private"
     mkdir -p "$repo_root/.local/test/assets/private/profile_picture"
-    install -m 0644 "$repo_root/assets/public/images.jpeg" \
+    install -m 0644 "$repo_root/tests/asset/images.jpeg" \
         "$repo_root/.local/test/assets/public/images.jpeg"
-    install -m 0644 "$repo_root/assets/private/profile_picture/images.jpeg" \
+    install -m 0644 "$repo_root/tests/asset/images.jpeg" \
         "$repo_root/.local/test/assets/private/profile_picture/images.jpeg"
     "${test_compose[@]}" up -d --wait
     if [[ "${1:-}" == "search" ]]; then

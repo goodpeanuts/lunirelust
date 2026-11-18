@@ -136,25 +136,6 @@ for mode, port in (("dev", "5434"), ("test", "5433")):
 assert set(json.loads((scratch / "dev-hybrid.json").read_text())["services"]) == {"postgres", "meilisearch", "vllm"}
 PY
 
-# Render the legacy helper's actual argument array without running its data steps.
-python3 - "$checkout" <<'PY'
-import json
-from pathlib import Path
-import shlex
-import subprocess
-import sys
-
-checkout = Path(sys.argv[1])
-declarations = [line for line in (checkout / "scripts/migrate-legacy-dev.sh").read_text().splitlines()
-                if line.startswith("dev_compose=(")]
-assert len(declarations) == 1
-command = shlex.split(declarations[0][len("dev_compose=("):-1])
-rendered = subprocess.run(command + ["config", "--format", "json"], cwd=str(checkout),
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-assert rendered.returncode == 0, "legacy development Compose command does not render: " + rendered.stderr
-assert set(json.loads(rendered.stdout)["services"]) == {"postgres"}
-PY
-
 # The shared base is the policy source: deliberate image/limit edits are valid.
 cp "$checkout/compose.middleware.yml" "$scratch/middleware.yml"
 python3 - "$checkout/compose.middleware.yml" <<'PY'

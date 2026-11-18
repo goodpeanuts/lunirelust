@@ -9,23 +9,21 @@ use crate::entities::{record, studio, RecordEntity, StudioEntity};
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait as _, ColumnTrait as _, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait as _, FromQueryResult, PaginatorTrait as _, QueryFilter as _, Statement, Value,
+    EntityTrait as _, FromQueryResult, QueryFilter as _, Statement, Value,
 };
 
 impl_named_entity_repo!(
-    paginated;
     StudioRepo,
     Studio,
     studio,
     StudioEntity,
     StudioRepository,
-    SearchStudioDto,
     CreateStudioDto,
     UpdateStudioDto,
     get_studio_record_counts,
     RecordEntity,
     record,
-    StudioId
+    StudioId;
 );
 
 // Tunable hyper-parameters for the affinity score. These are fixed constants

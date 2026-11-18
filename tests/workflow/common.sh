@@ -14,8 +14,7 @@ fail() {
 
 make_checkout() {
     local destination="$1" path
-    mkdir -p "$destination/scripts" "$destination/assets/public" \
-        "$destination/assets/private/profile_picture"
+    mkdir -p "$destination/scripts" "$destination/tests/asset" "$destination/assets"
     for path in "$source_root"/scripts/*.sh "$source_root"/scripts/*.py \
         "$source_root"/compose*.yml; do
         [[ -f "$path" ]] || continue
@@ -27,8 +26,7 @@ make_checkout() {
     cp "$source_root/.env.example" "$destination/.env"
     cp "$source_root/.env.example" "$destination/.env.example"
     cp "$source_root/.env.test" "$destination/.env.test"
-    printf 'public fixture\n' > "$destination/assets/public/images.jpeg"
-    printf 'private fixture\n' > "$destination/assets/private/profile_picture/images.jpeg"
+    printf 'image fixture\n' > "$destination/tests/asset/images.jpeg"
 }
 
 expect_failure() {

@@ -50,36 +50,6 @@ impl StudioServiceTrait for StudioService {
             .ok_or_else(|| AppError::NotFound("Studio not found".into()))
     }
 
-    async fn get_studio_list(
-        &self,
-        search_dto: SearchStudioDto,
-    ) -> Result<Vec<StudioDto>, AppError> {
-        let studios = self.repo.find_list(&self.db, search_dto).await?;
-        Ok(studios.into_iter().map(StudioDto::from).collect())
-    }
-
-    async fn get_studio_list_paginated(
-        &self,
-        search_dto: SearchStudioDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<StudioDto>, AppError> {
-        let paginated = self
-            .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
-            .await?;
-        Ok(PaginatedResponse {
-            count: paginated.count,
-            next: paginated.next,
-            previous: paginated.previous,
-            results: paginated.results.into_iter().map(StudioDto::from).collect(),
-        })
-    }
-
-    async fn get_studios(&self) -> Result<Vec<StudioDto>, AppError> {
-        let studios = self.repo.find_all(&self.db).await?;
-        Ok(studios.into_iter().map(StudioDto::from).collect())
-    }
-
     async fn get_studio_list_by_affinity(
         &self,
         search_dto: SearchStudioDto,

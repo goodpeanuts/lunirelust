@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// Response DTO for `toggle_like` endpoint.
@@ -26,6 +25,3 @@ pub struct InteractionStatusDto {
 pub struct BatchStatusRequestDto {
     pub record_ids: Vec<String>,
 }
-
-/// Response DTO for batch interaction status query, keyed by record ID.
-pub type BatchStatusResponse = HashMap<String, InteractionStatusDto>;

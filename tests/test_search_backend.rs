@@ -9,23 +9,47 @@ use sea_orm::{ConnectionTrait as _, DbBackend, Statement};
 
 #[tokio::test]
 async fn postgres_default_does_not_contact_enhanced_search() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use axum::{Json, Router};
+    use lunirelust::domains::search::dto::SearchQuery;
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("listener");
     let mut config = Config::from_env().expect("use .env.test");
     config.meili_url = format!("http://{}", listener.local_addr().expect("address"));
     config.vllm_embedding_url = config.meili_url.clone();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let seen = requests.clone();
+    let app = Router::new().fallback(move || {
+        let seen = seen.clone();
+        async move {
+            seen.fetch_add(1, Ordering::Relaxed);
+            Json(serde_json::json!({"status": "available"}))
+        }
+    });
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
     let db = setup_test_database(&config).await.expect("test database");
     let service = <SearchService as SearchServiceTrait>::create_service(config, db);
     service
         .trigger_startup_sync()
         .await
         .expect("persist PostgreSQL startup");
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(500), listener.accept())
-            .await
-            .is_err(),
-        "PostgreSQL mode must not start a background external search connection"
+    // Wait beyond the indexer's normal idle poll interval. Healthy optional
+    // services must not cause automatic promotion or background maintenance.
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+    let query: SearchQuery =
+        serde_json::from_value(serde_json::json!({"q": "postgres-only-regression"}))
+            .expect("search query");
+    let response = service.search(query, 0).await.expect("PostgreSQL search");
+    server.abort();
+    assert_eq!(response.search_mode, "sql_fallback");
+    assert_eq!(
+        requests.load(Ordering::Relaxed),
+        0,
+        "disabled search must not probe, query, index, or embed against healthy optional services"
     );
     assert!(!service.is_meili_ready());
 }

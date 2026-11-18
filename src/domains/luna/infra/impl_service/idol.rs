@@ -60,25 +60,6 @@ impl IdolServiceTrait for IdolService {
         Ok(idols.into_iter().map(IdolDto::from).collect())
     }
 
-    async fn get_idol_list_paginated(
-        &self,
-        search_dto: SearchIdolDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<IdolDto>, AppError> {
-        let paginated = self
-            .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(PaginatedResponse {
-            count: paginated.count,
-            next: paginated.next,
-            previous: paginated.previous,
-            results: paginated.results.into_iter().map(IdolDto::from).collect(),
-        })
-    }
-
     async fn get_idol_list_by_affinity(
         &self,
         search_dto: SearchIdolDto,
@@ -97,16 +78,6 @@ impl IdolServiceTrait for IdolService {
             previous: paginated.previous,
             results: paginated.results.into_iter().map(IdolDto::from).collect(),
         })
-    }
-
-    async fn get_idols(&self) -> Result<Vec<IdolDto>, AppError> {
-        let idols = self
-            .repo
-            .find_all(&self.db)
-            .await
-            .map_err(AppError::DatabaseError)?;
-
-        Ok(idols.into_iter().map(IdolDto::from).collect())
     }
 
     async fn create_idol(&self, create_dto: CreateIdolDto) -> Result<IdolDto, AppError> {

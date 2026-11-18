@@ -227,11 +227,7 @@ impl SearchServiceTrait for SearchService {
         }
 
         // Per-user permission levels are not yet implemented.
-        // The user_ext table has a type mismatch (user_id: i64 vs
-        // users.id: String/UUID) and no migration creates it, so we
-        // cannot query it. Return the maximum permission level so that
-        // all authenticated users see every record they could previously
-        // access before the search feature was added.
+        // Preserve existing access: authenticated users can search every record.
         i32::MAX
     }
 

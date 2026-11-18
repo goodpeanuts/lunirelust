@@ -46,14 +46,36 @@ pub(super) async fn search_sql_fallback(
 
     let mut branches = Vec::new();
     if wants(SearchEntityType::Record) {
-        values.extend([
-            filters.director.clone().into(),
-            filters.studio.clone().into(),
-            filters.label.clone().into(),
-            filters.genre.clone().into(),
-            filters.date_from.clone().into(),
-            filters.date_to.clone().into(),
-        ]);
+        // Bind only active filters. Nullable OR predicates make generic prepared
+        // plans underestimate broad searches and repeatedly rescan candidates.
+        // Unfiltered searches need no name joins.
+        let mut conditions = vec!["r.permission <= $2".to_owned()];
+        for (table, value) in [
+            ("director", filters.director.as_ref()),
+            ("studio", filters.studio.as_ref()),
+            ("label", filters.label.as_ref()),
+        ] {
+            if let Some(value) = value {
+                values.push(value.clone().into());
+                conditions.push(format!(
+                    "EXISTS (SELECT 1 FROM {table} n WHERE n.id = r.{table}_id AND n.name = ${})",
+                    values.len()
+                ));
+            }
+        }
+        if let Some(genre) = &filters.genre {
+            values.push(genre.clone().into());
+            conditions.push(format!("EXISTS (SELECT 1 FROM record_genre rg JOIN genre g ON g.id = rg.genre_id WHERE rg.record_id = r.id AND g.name = ${})", values.len()));
+        }
+        for (operator, value) in [
+            (">=", filters.date_from.as_ref()),
+            ("<=", filters.date_to.as_ref()),
+        ] {
+            if let Some(value) = value {
+                values.push(value.clone().into());
+                conditions.push(format!("r.date {operator} ${}::text::date", values.len()));
+            }
+        }
         // PostgreSQL 15 cannot infer the size of a materialized candidate CTE.
         // Sparse substring matches should use primary-key lookups, not hash all
         // records. Short terms have no useful trigrams and retain planner freedom.
@@ -66,18 +88,8 @@ pub(super) async fn search_sql_fallback(
             "SELECT r.id, 'record'::text AS entity_type, r.title, r.date,
             0 AS kind_order, 0::bigint AS numeric_id
             FROM candidate_ids c {record_lookup}
-            JOIN director d ON d.id = r.director_id
-            JOIN studio s ON s.id = r.studio_id
-            JOIN label l ON l.id = r.label_id
-            WHERE r.permission <= $2
-              AND ($3::text IS NULL OR d.name = $3)
-              AND ($4::text IS NULL OR s.name = $4)
-              AND ($5::text IS NULL OR l.name = $5)
-              AND ($6::text IS NULL OR EXISTS (
-                  SELECT 1 FROM record_genre rg JOIN genre g ON g.id = rg.genre_id
-                  WHERE rg.record_id = r.id AND g.name = $6))
-              AND ($7::text IS NULL OR r.date >= $7::text::date)
-              AND ($8::text IS NULL OR r.date <= $8::text::date)"
+            WHERE {}",
+            conditions.join(" AND ")
         ));
     }
     if !has_record_filters {
@@ -120,15 +132,6 @@ pub(super) async fn search_sql_fallback(
         hits(id, entity_type, title, date, kind_order, numeric_id) AS MATERIALIZED ({})",
         branches.join(" UNION ALL ")
     );
-    let count = db
-        .query_one(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            format!("{cte} SELECT count(*) AS total FROM hits"),
-            values.clone(),
-        ))
-        .await?
-        .ok_or_else(|| AppError::InternalErrorWithMessage("Missing search count".to_owned()))?;
-    let total: i64 = count.try_get("", "total")?;
     let limit_param = values.len() + 1;
     let offset_param = limit_param + 1;
     let mut page_values = values;
@@ -139,7 +142,7 @@ pub(super) async fn search_sql_fallback(
             ORDER BY kind_order, date DESC NULLS LAST,
                 CASE WHEN kind_order = 0 THEN id ELSE title END, numeric_id
             LIMIT ${limit_param} OFFSET ${offset_param})
-        SELECT p.id, p.entity_type, p.title, p.date::text AS date,
+        SELECT totals.total, p.id, p.entity_type, p.title, p.date::text AS date,
             d.name AS director_name, s.name AS studio_name, l.name AS label_name, se.name AS series_name,
             CASE WHEN r.id IS NOT NULL THEN ARRAY(
                 SELECT g.name FROM record_genre rg JOIN genre g ON g.id = rg.genre_id
@@ -147,19 +150,30 @@ pub(super) async fn search_sql_fallback(
             CASE WHEN r.id IS NOT NULL THEN ARRAY(
                 SELECT i.name FROM idol_participation ip JOIN idol i ON i.id = ip.idol_id
                 WHERE ip.record_id = r.id ORDER BY i.name, i.id) END AS idol_names
-        FROM page p LEFT JOIN record r ON p.entity_type = 'record' AND r.id = p.id
+        FROM (SELECT count(*) AS total FROM hits) totals
+        LEFT JOIN page p ON true
+        LEFT JOIN record r ON p.entity_type = 'record' AND r.id = p.id
         LEFT JOIN director d ON d.id = r.director_id LEFT JOIN studio s ON s.id = r.studio_id
         LEFT JOIN label l ON l.id = r.label_id LEFT JOIN series se ON se.id = r.series_id
         ORDER BY p.kind_order, p.date DESC NULLS LAST,
             CASE WHEN p.kind_order = 0 THEN p.id ELSE p.title END, p.numeric_id"), page_values)).await?;
+    // Count and page share one materialization and database snapshot. The left
+    // join retains the total even when the requested page is empty.
+    let total: i64 = rows
+        .first()
+        .ok_or_else(|| AppError::InternalErrorWithMessage("Missing search count".to_owned()))?
+        .try_get("", "total")?;
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
+        let Some(id) = row.try_get::<Option<String>>("", "id")? else {
+            continue;
+        };
         let kind: String = row.try_get("", "entity_type")?;
         let entity_type = kind.parse().map_err(|_error| {
             AppError::InternalErrorWithMessage("Invalid search entity type".to_owned())
         })?;
         results.push(SearchResultItem {
-            id: row.try_get("", "id")?,
+            id,
             entity_type,
             title: row.try_get("", "title")?,
             score: None,

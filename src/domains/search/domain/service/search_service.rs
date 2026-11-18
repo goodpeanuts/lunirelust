@@ -25,8 +25,8 @@ pub trait SearchServiceTrait: Send + Sync {
     /// Check if `MeiliSearch` is ready to serve queries.
     fn is_meili_ready(&self) -> bool;
 
-    /// Look up the caller's permission level from `user_ext`.
-    /// Falls back to 0 (no access to restricted records) on lookup failure.
+    /// Return maximum search permission for an existing authenticated user.
+    /// Missing users or lookup failures receive zero; per-user levels are not implemented.
     async fn get_user_permission(&self, user_id: &str) -> i32;
 
     /// Persist `PostgreSQL` mode before writes, or start enhanced repair in the background.

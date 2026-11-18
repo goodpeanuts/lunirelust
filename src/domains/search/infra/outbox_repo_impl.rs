@@ -165,29 +165,6 @@ impl OutboxRepository for OutboxRepo {
         Ok(())
     }
 
-    async fn reclaim_expired_claims(
-        db: &DatabaseConnection,
-        lease_timeout_secs: i64,
-    ) -> Result<u64, sea_orm::DbErr> {
-        let sql = r#"
-            UPDATE search_sync_events
-            SET claimed_by = NULL, claimed_at = NULL
-            WHERE processed_at IS NULL
-            AND claimed_by IS NOT NULL
-            AND claimed_at < NOW() - INTERVAL '1 second' * $1
-            "#;
-
-        let stmt = Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            sql,
-            [lease_timeout_secs.into()],
-        );
-
-        let result = db.execute(stmt).await?;
-
-        Ok(result.rows_affected())
-    }
-
     async fn count_pending(db: &DatabaseConnection) -> Result<i64, sea_orm::DbErr> {
         let count = search_sync_events::Entity::find()
             .filter(search_sync_events::Column::ProcessedAt.is_null())

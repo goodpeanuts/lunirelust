@@ -95,13 +95,6 @@ impl CrawlTaskManager {
         }
     }
 
-    pub fn mark_initialized(&self) {
-        self.initialized.store(true, Ordering::Relaxed);
-        if let Some(tx) = &self.init_tx {
-            let _result: Result<(), _> = tx.send(true);
-        }
-    }
-
     /// Sends an Initialize command to the runner thread.
     /// Returns Err if `runner_tx` is not set.
     pub fn send_initialize(&self) -> Result<(), String> {

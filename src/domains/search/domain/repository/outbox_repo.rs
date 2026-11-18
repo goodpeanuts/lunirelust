@@ -63,12 +63,6 @@ pub trait OutboxRepository: Send + Sync {
     /// Release a claim on an event (clear `claimed_by` and `claimed_at`).
     async fn release_claim(db: &DatabaseConnection, event_id: i64) -> Result<(), sea_orm::DbErr>;
 
-    /// Reclaim events whose claim has expired (lease timeout).
-    async fn reclaim_expired_claims(
-        db: &DatabaseConnection,
-        lease_timeout_secs: i64,
-    ) -> Result<u64, sea_orm::DbErr>;
-
     /// Count unprocessed events.
     async fn count_pending(db: &DatabaseConnection) -> Result<i64, sea_orm::DbErr>;
 }

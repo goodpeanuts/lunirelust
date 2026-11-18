@@ -38,9 +38,10 @@ which `just dev` enables.
 | `src/common/` | Configuration, database guards, HTTP handling, and shared utilities |
 | `migration/` | Versioned schema changes; [migration guide](migration/README.md) |
 | `scripts/`, `compose.*.yml` | Local development and isolated tests |
+| `tests/asset/` | Shared static image fixtures; runtime uploads stay untracked |
 | `subm/` | Private documentation, deployment scripts, and the standalone `lust` CLI |
 
 The public repository contains reusable source and non-secret examples. Private
-deployment context and historical design records live in the access-controlled
-[private documentation index](subm/README.md). Code, migrations, and executable
-workflow files define current behavior; archived proposals do not.
+deployment context lives in the access-controlled [private documentation index](subm/README.md).
+Retired designs and tools remain in Git history. Code, migrations, and executable
+workflow files define current behavior.

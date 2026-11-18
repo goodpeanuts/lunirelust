@@ -25,19 +25,6 @@ pub trait DirectorServiceTrait: Send + Sync {
     /// Retrieves a director by their unique identifier.
     async fn get_director_by_id(&self, id: i64) -> Result<DirectorDto, AppError>;
 
-    /// Retrieves director list by condition
-    async fn get_director_list(
-        &self,
-        search_dto: SearchDirectorDto,
-    ) -> Result<Vec<DirectorDto>, AppError>;
-
-    /// Retrieves director list with pagination
-    async fn get_director_list_paginated(
-        &self,
-        search_dto: SearchDirectorDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<DirectorDto>, AppError>;
-
     /// Retrieves the director list ordered by the given user's affinity score.
     async fn get_director_list_by_affinity(
         &self,
@@ -45,9 +32,6 @@ pub trait DirectorServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_id: String,
     ) -> Result<PaginatedResponse<DirectorDto>, AppError>;
-
-    /// Retrieves all directors.
-    async fn get_directors(&self) -> Result<Vec<DirectorDto>, AppError>;
 
     /// Creates a new director.
     async fn create_director(&self, create_dto: CreateDirectorDto)

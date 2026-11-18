@@ -25,19 +25,6 @@ pub trait SeriesServiceTrait: Send + Sync {
     /// Retrieves a series by their unique identifier.
     async fn get_series_by_id(&self, id: i64) -> Result<SeriesDto, AppError>;
 
-    /// Retrieves series list by condition
-    async fn get_series_list(
-        &self,
-        search_dto: SearchSeriesDto,
-    ) -> Result<Vec<SeriesDto>, AppError>;
-
-    /// Retrieves series list with pagination
-    async fn get_series_list_paginated(
-        &self,
-        search_dto: SearchSeriesDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<SeriesDto>, AppError>;
-
     /// Retrieves the series list ordered by the given user's affinity score.
     async fn get_series_list_by_affinity(
         &self,
@@ -45,9 +32,6 @@ pub trait SeriesServiceTrait: Send + Sync {
         pagination: PaginationQuery,
         user_id: String,
     ) -> Result<PaginatedResponse<SeriesDto>, AppError>;
-
-    /// Retrieves all series.
-    async fn get_series(&self) -> Result<Vec<SeriesDto>, AppError>;
 
     /// Creates a new series.
     async fn create_series(&self, create_dto: CreateSeriesDto) -> Result<SeriesDto, AppError>;

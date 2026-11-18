@@ -11,26 +11,8 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr};
 #[async_trait]
 /// Trait representing repository-level operations for studio entities.
 pub trait StudioRepository: Send + Sync {
-    /// Retrieves all studios from the database.
-    async fn find_all(&self, db: &DatabaseConnection) -> Result<Vec<Studio>, DbErr>;
-
     /// Finds a studio by their unique identifier.
     async fn find_by_id(&self, db: &DatabaseConnection, id: i64) -> Result<Option<Studio>, DbErr>;
-
-    /// Finds studio list by condition
-    async fn find_list(
-        &self,
-        db: &DatabaseConnection,
-        search_dto: SearchStudioDto,
-    ) -> Result<Vec<Studio>, DbErr>;
-
-    /// Finds studio list with pagination
-    async fn find_list_paginated(
-        &self,
-        db: &DatabaseConnection,
-        search_dto: SearchStudioDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<Studio>, DbErr>;
 
     /// Creates a new studio record within an active transaction.
     async fn create(

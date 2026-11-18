@@ -220,6 +220,97 @@ async fn postgres_search_paginates_records_then_named_entities_stably() {
 }
 
 #[tokio::test]
+async fn postgres_search_preserves_all_filter_combinations_with_generic_plans() {
+    let mut config = Config::from_env().expect("test config");
+    config.database_min_connections = 1;
+    config.database_max_connections = 1;
+    let db = setup_test_database(&config).await.expect("test database");
+    db.execute_unprepared("SET plan_cache_mode = force_generic_plan")
+        .await
+        .expect("exercise generic plans on a single connection");
+    let prefix = format!("FILTERS-{}", uuid::Uuid::new_v4());
+    insert_record(&db, &prefix, &prefix, 1).await;
+    db.execute(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO record_genre (record_id, genre_id, manual) VALUES ($1, 0, false)",
+        [prefix.clone().into()],
+    ))
+    .await
+    .expect("attach default genre");
+    let mut names = Vec::new();
+    for table in ["director", "studio", "label", "genre"] {
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                format!("SELECT name FROM {table} WHERE id = 0"),
+            ))
+            .await
+            .expect("default name")
+            .expect("default row");
+        names.push(row.try_get::<String>("", "name").expect("name"));
+    }
+    let service = <SearchService as SearchServiceTrait>::create_service(config, db.clone());
+    let mut responses = Vec::new();
+    for mask in 0..64 {
+        let mut request = query(&prefix, "record,director");
+        for (bit, slot, value) in [
+            (0, &mut request.director, names[0].as_str()),
+            (1, &mut request.studio, names[1].as_str()),
+            (2, &mut request.label, names[2].as_str()),
+            (3, &mut request.genre, names[3].as_str()),
+            (4, &mut request.date_from, "2026-01-01"),
+            (5, &mut request.date_to, "2026-01-01"),
+        ] {
+            if mask & (1 << bit) != 0 {
+                *slot = Some(value.to_owned());
+            }
+        }
+        responses.push(service.search(request, 1).await);
+    }
+    let mut excluded = Vec::new();
+    for field in [
+        "director",
+        "studio",
+        "label",
+        "genre",
+        "date_from",
+        "date_to",
+    ] {
+        let wrong = match field {
+            "date_from" => "2026-01-02",
+            "date_to" => "2025-12-31",
+            _ => "absent-filter-fixture",
+        };
+        let mut input = serde_json::json!({"q": prefix, "entity_types": "record,director"});
+        input[field] = wrong.into();
+        excluded.push(
+            service
+                .search(serde_json::from_value(input).expect("negative filter"), 1)
+                .await,
+        );
+    }
+    db.execute(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "DELETE FROM record_genre WHERE record_id = $1",
+        [prefix.clone().into()],
+    ))
+    .await
+    .expect("remove genre link");
+    remove_records(&db, &prefix).await;
+    for (mask, response) in responses.into_iter().enumerate() {
+        let response = response.expect("filtered search with a generic plan");
+        assert_eq!(response.total, 1, "filter combination {mask}");
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].id, prefix);
+    }
+    for response in excluded {
+        let response = response.expect("negative filter search");
+        assert_eq!(response.total, 0);
+        assert!(response.results.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn search_rejects_invalid_filters_instead_of_silently_broadening_results() {
     let db = database().await;
     let service = <SearchService as SearchServiceTrait>::create_service(

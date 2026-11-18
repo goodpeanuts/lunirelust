@@ -116,8 +116,6 @@ impl EmbeddingService {
     }
 
     /// Force set availability (useful for startup).
-    // allow: test 构建下 dead_code 不触发，expect 会报 unfulfilled
-    #[allow(dead_code)]
     pub fn set_available(&self, available: bool) {
         self.available
             .store(available && self.client.is_some(), Ordering::Relaxed);

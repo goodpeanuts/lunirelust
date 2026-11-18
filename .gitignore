@@ -11,7 +11,9 @@
 .env
 !.env.example
 
-# test images, will genereate after running tests
+# Legacy native asset layouts are runtime data; fixtures live in tests/asset.
+/assets/
+# Keep historical local outputs untracked after retiring their generators.
 cat(*).png
 images/
 

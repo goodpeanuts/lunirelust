@@ -50,33 +50,6 @@ impl GenreServiceTrait for GenreService {
             .ok_or_else(|| AppError::NotFound("Genre not found".into()))
     }
 
-    async fn get_genre_list(&self, search_dto: SearchGenreDto) -> Result<Vec<GenreDto>, AppError> {
-        let genres = self.repo.find_list(&self.db, search_dto).await?;
-        Ok(genres.into_iter().map(Into::into).collect())
-    }
-
-    async fn get_genre_list_paginated(
-        &self,
-        search_dto: SearchGenreDto,
-        pagination: PaginationQuery,
-    ) -> Result<PaginatedResponse<GenreDto>, AppError> {
-        let paginated = self
-            .repo
-            .find_list_paginated(&self.db, search_dto, pagination)
-            .await?;
-        Ok(PaginatedResponse {
-            count: paginated.count,
-            next: paginated.next,
-            previous: paginated.previous,
-            results: paginated.results.into_iter().map(Into::into).collect(),
-        })
-    }
-
-    async fn get_genres(&self) -> Result<Vec<GenreDto>, AppError> {
-        let genres = self.repo.find_all(&self.db).await?;
-        Ok(genres.into_iter().map(Into::into).collect())
-    }
-
     async fn get_genre_list_by_affinity(
         &self,
         search_dto: SearchGenreDto,

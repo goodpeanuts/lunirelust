@@ -36,6 +36,15 @@ pub enum SearchBackend {
 }
 
 impl SearchBackend {
+    /// Stable configuration value, also reported by the health endpoint.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Postgres => "postgres",
+            Self::MeiliKeyword => "meili-keyword",
+            Self::MeiliHybrid => "meili-hybrid",
+        }
+    }
+
     pub fn indexing_enabled(self) -> bool {
         self != Self::Postgres
     }
@@ -270,6 +279,7 @@ mod tests {
             ("meili-keyword", SearchBackend::MeiliKeyword),
             ("meili-hybrid", SearchBackend::MeiliHybrid),
         ] {
+            assert_eq!(backend.as_str(), value);
             assert_eq!(
                 value.parse::<SearchBackend>().expect("valid backend"),
                 backend
