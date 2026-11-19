@@ -368,9 +368,11 @@ preserves the draft notes and any maintainer additions, then appends source and
 image-digest information; retries retain the published body.
 
 `release-manifest.json` records the source SHA, every binary checksum, the tested
-image ID (its configuration digest), and the compressed image archive checksum.
+Docker image ID, and the compressed image archive checksum. For a single-platform
+image the local store can report either the config digest or the manifest digest
+as its image ID. Publication checks the tested ID against those two registry values.
 `SHA256SUMS` covers the binaries and manifest; `publication.json` adds the registry
-manifest digest, which is distinct from the image ID and archive checksum. Workflow
+manifest digest used for immutable pulls. Workflow
 image and binary artifacts have a 14-day retention limit; manual rehearsal
 manifests use seven days. These settings do not preserve artifacts across a full
 workflow rerun. No intermediate image, private source cache, or build record is

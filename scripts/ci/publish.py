@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import urllib.error
@@ -27,6 +28,12 @@ def version_tuple(tag):
     return tuple(map(int, tag[1:].split('.')))
 
 
+def matches_tested_image(image, tested_id):
+    # Classic Docker exposes the config digest as Id; a containerd store can
+    # expose the single-platform manifest digest. Both identify the tested image.
+    return image is not None and tested_id in (image['config_digest'], image['digest'])
+
+
 def publish(data, directory, remote):
     """Every external mutation is resumable; never replace a version or an asset."""
     tag, image_id = data['version'], data['image']['image_id']
@@ -41,7 +48,7 @@ def publish(data, directory, remote):
                 'existing release identity differs; refusing to replace it')
     image = remote.get_image(tag)
     if image:
-        require(image['image_id'] == image_id, 'existing version image differs; refusing to replace it')
+        require(matches_tested_image(image, image_id), 'existing version image differs; refusing to replace it')
     files = {name: directory / name for name in (*data['binaries'], 'release-manifest.json', 'SHA256SUMS')}
     expected = {name: sha256(path) for name, path in files.items()}
     assets = remote.get_assets(existing['id']) if existing else {}
@@ -64,7 +71,7 @@ def publish(data, directory, remote):
     if image is None:
         remote.push_image(tag, image_id)
         image = remote.get_image(tag)
-    require(image and image['image_id'] == image_id, 'published version image does not match tested image')
+    require(matches_tested_image(image, image_id), 'published version image does not match tested image')
     write_json(directory / 'publication.json', {
         'source_sha': data['source_sha'], 'version': tag, 'image_id': image_id, 'image_digest': image['digest']})
     expected['publication.json'] = sha256(directory / 'publication.json')
@@ -136,26 +143,37 @@ class Remote:
             page += 1
 
     def get_image(self, tag):
+        manifest_types = ('application/vnd.docker.distribution.manifest.v2+json',
+                          'application/vnd.oci.image.manifest.v1+json')
         index_types = ('application/vnd.oci.image.index.v1+json',
                        'application/vnd.docker.distribution.manifest.list.v2+json')
         headers = {'Authorization': 'Bearer ' + self.registry_token(),
-                   'Accept': ', '.join(('application/vnd.docker.distribution.manifest.v2+json',
-                                       'application/vnd.oci.image.manifest.v1+json', *index_types))}
+                   'Accept': ', '.join((*manifest_types, *index_types))}
         try:
             with urllib.request.urlopen(urllib.request.Request(
                     'https://ghcr.io/v2/' + self.package + '/manifests/' + tag, headers=headers), timeout=60) as response:
                 raw = response.read()
                 digest = response.headers['Docker-Content-Digest']
+                response_type = response.headers.get('Content-Type', '').partition(';')[0].strip()
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
             raise
         require(digest == 'sha256:' + hashlib.sha256(raw).hexdigest(), 'registry manifest digest differs')
         content = json.loads(raw)
-        if tag == 'latest' and content.get('mediaType') in index_types and isinstance(content.get('manifests'), list):
+        media_type = content.get('mediaType') or response_type
+        require(not response_type or media_type == response_type, 'registry manifest media types differ')
+        if tag == 'latest' and media_type in index_types and isinstance(content.get('manifests'), list):
             return {'digest': digest}
-        require('config' in content, 'existing registry image is not the supported single-platform manifest')
-        return {'image_id': content['config']['digest'], 'digest': digest}
+        config = content.get('config')
+        require(content.get('schemaVersion') == 2 and media_type in manifest_types
+                and 'manifests' not in content and 'artifactType' not in content and isinstance(content.get('layers'), list)
+                and isinstance(config, dict) and config.get('mediaType') in
+                ('application/vnd.oci.image.config.v1+json', 'application/vnd.docker.container.image.v1+json')
+                and isinstance(config.get('digest'), str)
+                and re.fullmatch(r'sha256:[0-9a-f]{64}', config['digest']),
+                'existing registry image is not the supported single-platform manifest')
+        return {'config_digest': config['digest'], 'digest': digest}
 
     def create_release(self, data, marker):
         return self.json_request(self.api + '/releases', method='POST', data={

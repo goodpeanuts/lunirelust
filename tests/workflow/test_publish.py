@@ -55,7 +55,7 @@ class FakeRemote:
         self.events.append('push:' + tag)
         if tag == 'latest' and self.fail_latest:
             raise RuntimeError('registry temporarily unavailable')
-        self.images[tag] = {'image_id': image_id, 'digest': 'sha256:' + hashlib.sha256(image_id.encode()).hexdigest()}
+        self.images[tag] = {'config_digest': image_id, 'digest': 'sha256:' + hashlib.sha256(image_id.encode()).hexdigest()}
 
     def publish_release(self, identifier, body):
         self.events.append('publish-release')
@@ -112,9 +112,55 @@ class PublicationTests(unittest.TestCase):
         self.publish()
         self.assertFalse(any(event.startswith(('upload:', 'push:')) for event in self.remote.events))
 
+    def test_manifest_store_id_is_verified_after_push_and_on_retry(self):
+        config = 'sha256:' + 'b' * 64
+        raw = json.dumps({'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+                          'config': {'mediaType': 'application/vnd.oci.image.config.v1+json', 'digest': config},
+                          'layers': []}).encode()
+        tested_id = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        self.manifest['image']['image_id'] = tested_id
+        release.write_json(self.directory / 'release-manifest.json', self.manifest)
+        pushed = self.remote.push_image
+
+        def push_manifest(tag, image_id):
+            self.assertEqual(image_id, tested_id)
+            pushed(tag, image_id)
+            self.remote.images[tag] = {'config_digest': config, 'digest': tested_id}
+
+        self.remote.push_image = push_manifest
+        self.publish()
+        receipt = json.loads((self.directory / 'publication.json').read_text())
+        self.assertEqual((receipt['image_id'], receipt['image_digest']), (tested_id, tested_id))
+        self.remote.events.clear()
+        self.publish()
+        self.assertFalse(any(event.startswith(('push:', 'upload:', 'create-')) for event in self.remote.events))
+
+    def test_mismatched_manifest_and_config_after_push_leave_release_unpublished(self):
+        pushed = self.remote.push_image
+
+        def push_other(tag, image_id):
+            pushed(tag, image_id)
+            self.remote.images[tag] = {'config_digest': 'sha256:' + 'b' * 64,
+                                       'digest': 'sha256:' + 'c' * 64}
+
+        self.remote.push_image = push_other
+        with self.assertRaisesRegex(ValueError, 'published version image does not match'):
+            self.publish()
+        self.assertTrue(self.remote.release['draft'])
+        self.assertNotIn('upload:publication.json', self.remote.events)
+        self.assertNotIn('push:latest', self.remote.events)
+
     def test_existing_version_with_different_image_fails_before_writes(self):
-        self.remote.images['v1.2.3'] = {'image_id': 'sha256:other', 'digest': 'sha256:other'}
+        self.remote.images['v1.2.3'] = {'config_digest': 'sha256:other', 'digest': 'sha256:other'}
         with self.assertRaisesRegex(ValueError, 'image'):
+            self.publish()
+        self.assertEqual(self.remote.events, [])
+
+    def test_existing_receipt_binds_manifest_even_when_config_still_matches(self):
+        self.publish()
+        self.remote.images['v1.2.3']['digest'] = 'sha256:' + 'b' * 64
+        self.remote.events.clear()
+        with self.assertRaisesRegex(ValueError, 'receipt checksum'):
             self.publish()
         self.assertEqual(self.remote.events, [])
 
@@ -171,7 +217,7 @@ class PublicationTests(unittest.TestCase):
             self.publish()
         self.assertFalse(self.remote.release['draft'])
         new_image = dict(self.remote.images['latest'])
-        self.assertEqual(new_image['image_id'], self.manifest['image']['image_id'])
+        self.assertEqual(new_image['config_digest'], self.manifest['image']['image_id'])
         self.assertEqual(self.remote.latest, old_manifest['version'])
         self.manifest = old_manifest
         release.write_json(self.directory / 'release-manifest.json', self.manifest)
@@ -353,7 +399,9 @@ class PublicationTests(unittest.TestCase):
         remote.token = 'synthetic-token'
         remote.actor = 'synthetic-actor'
         tokens = 0
-        manifest = json.dumps({'config': {'digest': self.manifest['image']['image_id']}}).encode()
+        manifest = json.dumps({'schemaVersion': 2, 'config': {'mediaType': 'application/vnd.docker.container.image.v1+json',
+                                                               'digest': self.manifest['image']['image_id']},
+                               'layers': []}).encode()
 
         def response(request, **kwargs):
             nonlocal tokens
@@ -362,13 +410,34 @@ class PublicationTests(unittest.TestCase):
                 return io.BytesIO(json.dumps({'token': f'fresh-{tokens}'}).encode())
             self.assertEqual(request.headers['Authorization'], f'Bearer fresh-{tokens}')
             result = io.BytesIO(manifest)
-            result.headers = {'Docker-Content-Digest': 'sha256:' + hashlib.sha256(manifest).hexdigest()}
+            result.headers = {'Docker-Content-Digest': 'sha256:' + hashlib.sha256(manifest).hexdigest(),
+                              'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json'}
             return result
 
         with mock.patch('urllib.request.urlopen', side_effect=response):
             remote.get_image('v1.2.3')
             remote.get_image('v1.2.3')
         self.assertEqual(tokens, 2)
+
+    def test_manifest_identity_rejects_wrong_bytes_type_and_config_digest(self):
+        remote = self.publisher.Remote.__new__(self.publisher.Remote)
+        remote.package = 'synthetic/repository/lunirelust'
+        remote.registry_token = lambda: 'synthetic-token'
+        oci = 'application/vnd.oci.image.manifest.v1+json'
+        config = {'mediaType': 'application/vnd.oci.image.config.v1+json', 'digest': 'sha256:' + '1' * 64}
+        schema = {'schemaVersion': 2, 'mediaType': oci, 'config': config, 'layers': []}
+        for case, doc, media in [('bytes', schema, oci),
+                                  ('type', schema, 'application/vnd.oci.image.index.v1+json'),
+                                  ('config', dict(schema, config=dict(config, digest='sha256:short')), oci),
+                                  ('non-image', dict(schema, config=dict(config, mediaType='application/octet-stream')), oci),
+                                  ('artifact', dict(schema, artifactType='application/example'), oci)]:
+            with self.subTest(case=case):
+                raw = json.dumps(doc).encode()
+                reply = io.BytesIO(raw)
+                reply.headers = {'Docker-Content-Digest': 'sha256:' + ('0' * 64 if case == 'bytes' else hashlib.sha256(raw).hexdigest()),
+                                 'Content-Type': media}
+                with mock.patch('urllib.request.urlopen', return_value=reply), self.assertRaises(ValueError):
+                    remote.get_image('v1.2.3')
 
     def test_manual_context_is_never_authorized_to_publish(self):
         for event, ref in [('workflow_dispatch', 'refs/tags/v1.2.3'), ('push', 'refs/heads/main')]:
