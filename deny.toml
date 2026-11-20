@@ -72,8 +72,6 @@ feature-depth = 1
 ignore = [
     # bytes: Integer overflow in BytesMut::reserve (indirect dep via sqlx/sea-orm)
     "RUSTSEC-2026-0007",
-    # rustls-webpki: CRLs not considered authoritative (indirect dep via sqlx)
-    "RUSTSEC-2026-0049",
     # time: DoS via Stack Exhaustion (indirect dep)
     "RUSTSEC-2026-0009",
     # tracing-subscriber: ANSI escape sequence injection in logs (indirect dep)
